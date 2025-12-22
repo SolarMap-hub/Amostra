@@ -1,8 +1,9 @@
 // ================================
 // DASHBOARD PRINCIPAL - SOLARMAP
-// VERSÃO FINAL COM MÉDIAS POR BAIRRO
+// VERSÃO FINAL LIMPA E COMPLETA
+// COM CORREÇÃO DE NORMALIZAÇÃO NUMÉRICA
 // ================================
-console.log('🚀 Dashboard SolarMap - VERSÃO FINAL');
+console.log('🚀 Dashboard SolarMap - VERSÃO FINAL LIMPA (COM CORREÇÃO NUMÉRICA)');
 
 // ================================
 // VARIÁVEIS GLOBAIS
@@ -13,8 +14,16 @@ let dadosGeoJSON = [];
 let imovelSelecionado = null;
 let estatisticas = {};
 let estatisticasPorBairro = {};
+let dadosGeoJSONRaw = null;
+let dadosExcelRaw = null;
+let estatisticasMerge = {
+    totalGeoJSON: 0,
+    totalExcel: 0,
+    sucessos: 0,
+    semMatch: 0,
+    erros: 0
+};
 
-// Filtros ativos
 let filtrosAtivos = {
     bairros: [],
     info: 'capacidade_por_m2',
@@ -22,96 +31,32 @@ let filtrosAtivos = {
     maxValue: null
 };
 
-// Cores SolarMap
-const CORES = {
-    primary_blue: '#1e3a5f',
-    secondary_blue: '#2c4a6b',
-    accent_green: '#4a9b4a',
-    solar_orange: '#ff8c00',
-    light_orange: '#ffb347',
-    neutral_gray: '#f5f6fa',
-    dark_gray: '#2f3640',
-    white: '#ffffff',
-    success: '#27ae60',
-    warning: '#f39c12',
-    danger: '#e74c3c'
-};
-
-// Escala de cores para o mapa (10% mais clara no laranja)
-const COLOR_SCALE = [
-    '#FFF5E6', '#FFE4CC', '#FFD4A3', '#FFC080',  // Laranjas 10% mais claros
-    '#FF9500', '#FF7F00', '#FF6500', '#FF4500'   // Tons originais
-];
-
-// ================================
-// PARÂMETROS SIRGAS 2000 / UTM 23S
-// ================================
-const SIRGAS_2000_UTM_23S = {
-    epsg: 31983,
-    datum: 'SIRGAS 2000',
-    zone: 23,
-    hemisphere: 'S',
-    centralMeridian: -45.0,
-    falseEasting: 500000,
-    falseNorthing: 10000000,
-    scaleFactor: 0.9996,
-    ellipsoid: {
-        a: 6378137.0,
-        f: 1/298.257222101,
-        b: 6356752.314140347
-    },
-    saoLuisBounds: {
-        minX: 580000,
-        maxX: 600000,
-        minY: 9710000,
-        maxY: 9730000
-    },
-    geoBounds: {
-        north: -2.200,
-        south: -2.800,
-        east: -43.900,
-        west: -44.600
-    }
-};
-
 // ================================
 // FUNÇÕES UTILITÁRIAS
 // ================================
 function formatNumber(numero, decimais = 2) {
     if (numero === null || numero === undefined || isNaN(numero)) {
-        return '0,00';
+        return decimais > 0 ? '0,00' : '0';
     }
-    return numero.toLocaleString('pt-BR', {
+    const valor = parseFloat(numero);
+    if (isNaN(valor)) {
+        return decimais > 0 ? '0,00' : '0';
+    }
+    return valor.toLocaleString('pt-BR', {
         minimumFractionDigits: decimais,
         maximumFractionDigits: decimais
     });
-}
-
-function getColorByValue(valor, minValue, maxValue) {
-    if (maxValue === minValue) {
-        return COLOR_SCALE[0];
-    }
-    const normalized = (valor - minValue) / (maxValue - minValue);
-    const index = Math.floor(normalized * (COLOR_SCALE.length - 1));
-    return COLOR_SCALE[Math.min(Math.max(index, 0), COLOR_SCALE.length - 1)];
 }
 
 function showMessage(message) {
     console.log(message);
     const messageDiv = document.createElement('div');
     messageDiv.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
+        position: fixed; top: 20px; right: 20px;
         background: ${message.includes('❌') ? '#e74c3c' : '#27ae60'};
-        color: white;
-        padding: 15px 20px;
-        border-radius: 8px;
-        font-family: Arial, sans-serif;
-        font-size: 14px;
-        z-index: 10000;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-        max-width: 400px;
+        color: white; padding: 15px 20px; border-radius: 8px;
+        font-family: Arial, sans-serif; font-size: 14px; z-index: 10000;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3); max-width: 400px;
     `;
     messageDiv.textContent = message;
     document.body.appendChild(messageDiv);
@@ -123,533 +68,475 @@ function showMessage(message) {
 }
 
 // ================================
-// FUNÇÕES DE DEBUG PARA CAMPOS ZERADOS
+// CARREGAMENTO DE DADOS
 // ================================
-function debugFieldMapping(sampleData) {
-    console.log('🔍 === DEBUG MAPEAMENTO DE CAMPOS ===');
-    if (!sampleData || typeof sampleData !== 'object') {
-        console.log('❌ Dados de amostra inválidos');
-        return;
-    }
+async function carregarGeoJSON() {
+    console.log('📍 Carregando GeoJSON...');
+    const response = await fetch('data/Dados_energia_solar.geojson');
+    if (!response.ok) throw new Error(`GeoJSON não encontrado: ${response.status}`);
     
-    const camposEsperados = [
-        'Quantidade de Radiação Máxima Solar nos mêses (kW.m²)',
-        'Quantidade de Placas Fotovoltaicas capaz de gerar a energia gerada do imóvel',
-        'Capacidade de Produção de energia em kW por m²',
-        'Capacidade de Produção de energia em Placas Fotovoltaicas em kW.h.mês',
-        'Área em metros quadrados da edificação',
-        'Produção de energia kW do telhado do edifício'
-    ];
+    const geoData = await response.json();
+    dadosGeoJSONRaw = geoData;
+    console.log(`✅ GeoJSON: ${geoData.features.length} features`);
+    estatisticasMerge.totalGeoJSON = geoData.features.length;
+    return geoData;
+}
+
+async function carregarExcel() {
+    console.log('📊 Carregando Excel...');
+    const response = await fetch('data/Dados_energia_solar.xlsx');
+    if (!response.ok) throw new Error('Excel não encontrado');
     
-    console.log('📋 Campos disponíveis no JSON:', Object.keys(sampleData));
-    console.log('🎯 Procurando pelos campos esperados:');
+    const arrayBuffer = await response.arrayBuffer();
+    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+    const firstSheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[firstSheetName];
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { raw: false, defval: '' });
     
-    camposEsperados.forEach(campo => {
-        if (sampleData.hasOwnProperty(campo)) {
-            console.log(`✅ ENCONTRADO: "${campo}" = ${sampleData[campo]}`);
-        } else {
-            console.log(`❌ NÃO ENCONTRADO: "${campo}"`);
-            // Buscar campos similares
-            const similares = Object.keys(sampleData).filter(key => 
-                key.toLowerCase().includes(campo.toLowerCase().split(' ')[0]) ||
-                key.toLowerCase().includes('radiacao') ||
-                key.toLowerCase().includes('placas') ||
-                key.toLowerCase().includes('capacidade')
-            );
-            if (similares.length > 0) {
-                console.log('   🔎 Campos similares:', similares);
-            }
-        }
-    });
+    dadosExcelRaw = jsonData;
+    window.dadosExcelRaw = dadosExcelRaw;
+    
+    console.log(`✅ Excel: ${jsonData.length} registros`);
+    console.log('Headers Excel:', Object.keys(jsonData[0]).slice(0, 5));
+    console.log('Primeiro bairro:', jsonData[0][' Bairros ']);
+    
+    estatisticasMerge.totalExcel = jsonData.length;
+    return jsonData;
 }
 
 // ================================
-// FUNÇÕES DE CONVERSÃO SIRGAS 2000
+// EXTRAÇÃO DE OBJECTID
 // ================================
-function convertSIRGAS2000UTMToWGS84(utmX, utmY) {
-    try {
-        if (!utmX || !utmY || isNaN(utmX) || isNaN(utmY)) {
-            return null;
+function extrairObjectIdGeoJSON(properties, fallbackIndex) {
+    const campos = ['OBJECTID', 'ObjectID', 'objectid', 'FID', 'ID', 'id'];
+    for (const campo of campos) {
+        if (properties[campo]) {
+            const num = parseInt(String(properties[campo]));
+            if (!isNaN(num) && num > 0) return num;
         }
-        const a = SIRGAS_2000_UTM_23S.ellipsoid.a;
-        const f = SIRGAS_2000_UTM_23S.ellipsoid.f;
-        const k0 = SIRGAS_2000_UTM_23S.scaleFactor;
-        const lon0 = SIRGAS_2000_UTM_23S.centralMeridian * Math.PI / 180;
-        const FE = SIRGAS_2000_UTM_23S.falseEasting;
-        const FN = SIRGAS_2000_UTM_23S.falseNorthing;
-        const e2 = 2 * f - f * f;
-        const e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
-        const x = utmX - FE;
-        const y = utmY - FN;
-        const M = y / k0;
-        const mu = M / (a * (1 - e2/4 - 3*e2*e2/64 - 5*e2*e2*e2/256));
-        const phi1 = mu + (3*e1/2 - 27*e1*e1*e1/32) * Math.sin(2*mu) +
-                     (21*e1*e1/16 - 55*e1*e1*e1*e1/32) * Math.sin(4*mu) +
-                     (151*e1*e1*e1/96) * Math.sin(6*mu);
-        const C1 = e2 * Math.cos(phi1) * Math.cos(phi1);
-        const T1 = Math.tan(phi1) * Math.tan(phi1);
-        const N1 = a / Math.sqrt(1 - e2 * Math.sin(phi1) * Math.sin(phi1));
-        const R1 = a * (1 - e2) / Math.pow(1 - e2 * Math.sin(phi1) * Math.sin(phi1), 1.5);
-        const D = x / (N1 * k0);
-        const lat = phi1 - (N1 * Math.tan(phi1) / R1) *
-                   (D*D/2 * (1 - D*D/12 * (5 + 3*T1 + 10*C1 - 4*C1*C1 - 9*e2)));
-        const lon = lon0 + (D - D*D*D/6 * (1 + 2*T1 + C1)) / Math.cos(phi1);
-        const latDeg = lat * 180 / Math.PI;
-        const lonDeg = lon * 180 / Math.PI;
-        const geoBounds = SIRGAS_2000_UTM_23S.geoBounds;
-        if (latDeg < geoBounds.south || latDeg > geoBounds.north ||
-            lonDeg < geoBounds.west || lonDeg > geoBounds.east) {
-            return null;
+    }
+    return fallbackIndex + 1;
+}
+
+function extrairObjectIdExcel(row, fallbackIndex) {
+    const campos = ['OBJECTID', 'ObjectID', 'objectid', 'FID_1', 'FID', 'ID', 'id'];
+    for (const campo of campos) {
+        if (row[campo]) {
+            const num = parseInt(String(row[campo]));
+            if (!isNaN(num) && num > 0) return num;
         }
-        return [latDeg, lonDeg];
-    } catch (error) {
-        console.error('❌ Erro na conversão SIRGAS 2000:', error);
+    }
+    return fallbackIndex + 1;
+}
+
+// ================================
+// FUNÇÃO CORRIGIDA PARA CONVERSÃO DE NÚMEROS
+// ================================
+function converterNumeroCorreto(valor) {
+    if (valor === null || valor === undefined || valor === '') {
         return null;
     }
-}
-
-function isValidSaoLuisCoordinate(lat, lng) {
-    const bounds = SIRGAS_2000_UTM_23S.geoBounds;
-    return lat >= bounds.south && lat <= bounds.north &&
-           lng >= bounds.west && lng <= bounds.east;
-}
-
-// ================================
-// FUNÇÕES DE CARREGAMENTO DE DADOS
-// ================================
-async function loadGeoJSON() {
-    console.log('📍 === CARREGANDO GEOJSON ===');
-    try {
-        const response = await fetch('data/Dados_energia_solar.geojson');
-        if (!response.ok) {
-            throw new Error(`GeoJSON não encontrado: ${response.status}`);
-        }
-        const geoData = await response.json();
-        console.log(`✅ GeoJSON carregado: ${geoData.features.length} features`);
-        dadosGeoJSON = geoData.features.map((feature, index) => {
-            const props = feature.properties;
-            const objectId = extractObjectIdFromGeoJSON(props, index);
-            return {
-                id: objectId,
-                coordinates: feature.geometry.coordinates,
-                geometryType: feature.geometry.type,
-                originalProperties: props
-            };
-        });
-        console.log(`✅ Geometrias processadas: ${dadosGeoJSON.length} features`);
-    } catch (error) {
-        console.error('❌ Erro ao carregar GeoJSON:', error);
-        throw error;
-    }
-}
-
-async function loadExcelData() {
-    console.log('📊 === CARREGANDO JSON ===');
-    try {
-        const response = await fetch('data/Dados_energia_solar.json');
-        if (!response.ok) {
-            throw new Error(`❌ Arquivo JSON não encontrado! Status: ${response.status}`);
-        }
-        console.log('✅ JSON encontrado, carregando...');
-        const jsonData = await response.json();
-        console.log(`✅ JSON carregado: ${jsonData.length} registros`);
-        
-        // DEBUG: Verificar primeiro registro
-        if (jsonData.length > 0) {
-            console.log('🔍 Primeiro registro do JSON:');
-            console.log(jsonData[0]);
-            debugFieldMapping(jsonData[0]);
-        }
-        
-        dadosExcel = jsonData.map(row => normalizeCSVData(row));
-        console.log(`✅ JSON processado: ${dadosExcel.length} registros`);
-        
-        // DEBUG: Verificar primeiro registro processado
-        if (dadosExcel.length > 0) {
-            console.log('🔍 Primeiro registro processado:');
-            console.log(dadosExcel[0]);
-        }
-        
-    } catch (error) {
-        console.error('❌ Erro ao carregar JSON:', error);
-        throw error;
-    }
-}
-
-// ================================
-// FUNÇÕES DE EXTRAÇÃO DE DADOS
-// ================================
-function extractObjectIdFromGeoJSON(props, index) {
-    const possibleFields = [
-        'OBJECTID', 'ObjectID', 'objectid', 'OBJECT_ID',
-        'FID', 'FID_1', 'fid', 'ID', 'id'
-    ];
-    for (const field of possibleFields) {
-        if (props.hasOwnProperty(field) && props[field] !== null && props[field] !== undefined) {
-            const value = parseInt(props[field]);
-            if (!isNaN(value)) {
-                return value;
-            }
-        }
-    }
-    return index + 1;
-}
-
-function extractObjectIdFromExcel(row) {
-    const possibleFields = [
-        'OBJECTID', 'ObjectID', 'objectid', 'OBJECT_ID',
-        'FID', 'FID_1', 'fid', 'ID', 'id'
-    ];
-    for (const field of possibleFields) {
-        if (row.hasOwnProperty(field) && row[field] !== null && row[field] !== undefined && row[field] !== '') {
-            const value = parseInt(String(row[field]));
-            if (!isNaN(value)) {
-                return value;
-            }
-        }
-    }
-    return null;
-}
-
-// ================================
-// FUNÇÕES DE NORMALIZAÇÃO DE DADOS - MAPEAMENTO FLEXÍVEL
-// ================================
-function normalizeCSVData(row) {
-    // Mapeamento mais flexível para encontrar os campos
-    const fieldMapping = {
-        'OBJECTID': 'objectid',
-        'Bairros': 'bairro',
-        'Bairro': 'bairro',
-        'Área em metros quadrados da edificação': 'area_edificacao',
-        'Produção de energia kW do telhado do edifício': 'producao_telhado',
-        'Capacidade de Produção de energia em kW por m²': 'capacidade_por_m2',
-        'Quantidade de Radiação Máxima Solar nos mêses (kW.m²)': 'radiacao_max',
-        'Quantidade de Placas Fotovoltaicas capaz de gerar a energia gerada do imóvel': 'quantidade_placas',
-        'Capacidade de Produção de energia em Placas Fotovoltaicas em kW.h.dia': 'capacidade_placas_dia',
-        'Capacidade de Produção de energia em Placas Fotovoltaicas em kW.h.mês': 'capacidade_placas_mes',
-        'Potencial médio de geração FV em um dia (kW.dia.m²)': 'potencial_medio_dia',
-        'Renda Total': 'renda_total',
-        'Renda per capita': 'renda_per_capita',
-        'Renda domiciliar per capita': 'renda_domiciliar_per_capita'
-    };
-
-    const normalized = {};
     
-    // Primeiro, mapear campos conhecidos
-    Object.entries(row).forEach(([key, value]) => {
-        const normalizedKey = fieldMapping[key] || key.toLowerCase().replace(/\s+/g, '_');
+    // Converter para string primeiro
+    let valorString = String(valor).trim();
+    
+    // Se for um número puro sem formatação, retornar direto
+    if (!isNaN(Number(valorString)) && !valorString.includes(',') && !valorString.includes('.')) {
+        return Number(valorString);
+    }
+    
+    // CORREÇÃO MELHORADA: Detectar formato brasileiro vs americano
+    const temVirgula = valorString.includes(',');
+    const temPonto = valorString.includes('.');
+    
+    // Caso 1: Formato brasileiro com vírgula decimal
+    if (temVirgula && temPonto) {
+        // Verificar qual é o último: vírgula ou ponto
+        const ultimaVirgula = valorString.lastIndexOf(',');
+        const ultimoPonto = valorString.lastIndexOf('.');
         
-        if (typeof value === 'string' && value.length > 0) {
-            const cleanValue = value
-                .replace(/\./g, '')
-                .replace(',', '.')
-                .replace(/[^\d.-]/g, '');
-            const numValue = parseFloat(cleanValue);
-            normalized[normalizedKey] = isNaN(numValue) ? value : numValue;
-        } else if (typeof value === 'number') {
-            normalized[normalizedKey] = value;
+        if (ultimaVirgula > ultimoPonto) {
+            // Formato brasileiro: "1.234,56" 
+            valorString = valorString.replace(/\./g, '').replace(',', '.');
         } else {
-            normalized[normalizedKey] = value || 0;
+            // Formato americano: "1,234.56"
+            valorString = valorString.replace(/,/g, '');
         }
-    });
+    } else if (temVirgula && !temPonto) {
+        // Só vírgula: formato brasileiro "21,72"
+        valorString = valorString.replace(',', '.');
+    }
+    // Se só tem ponto ou nenhum dos dois, manter como está
     
-    // Buscar campos alternativos se os principais estão zerados/ausentes
-    if (!normalized.radiacao_max || normalized.radiacao_max === 0) {
-        // Procurar por campos similares de radiação
-        const radiacaoFields = Object.keys(row).filter(key => 
-            key.toLowerCase().includes('radiacao') || 
-            key.toLowerCase().includes('radiation') ||
-            key.toLowerCase().includes('solar')
-        );
-        if (radiacaoFields.length > 0) {
-            console.log('🔍 Campos de radiação encontrados:', radiacaoFields);
-            // Usar o primeiro campo não-zero encontrado
-            for (const field of radiacaoFields) {
-                const value = parseFloat(String(row[field]).replace(',', '.'));
-                if (!isNaN(value) && value > 0) {
-                    normalized.radiacao_max = value;
-                    console.log(`✅ Usando ${field} para radiacao_max: ${value}`);
-                    break;
-                }
-            }
-        }
+    // Remover caracteres não numéricos (exceto ponto decimal e sinal)
+    valorString = valorString.replace(/[^\d.-]/g, '');
+    
+    // Garantir que só há um ponto decimal
+    const partes = valorString.split('.');
+    if (partes.length > 2) {
+        valorString = partes[0] + '.' + partes.slice(1).join('');
     }
     
-    if (!normalized.quantidade_placas || normalized.quantidade_placas === 0) {
-        // Procurar por campos similares de placas
-        const placasFields = Object.keys(row).filter(key => 
-            key.toLowerCase().includes('placa') || 
-            key.toLowerCase().includes('panel') ||
-            key.toLowerCase().includes('quantidade')
-        );
-        if (placasFields.length > 0) {
-            console.log('🔍 Campos de placas encontrados:', placasFields);
-            for (const field of placasFields) {
-                const value = parseFloat(String(row[field]).replace(',', '.'));
-                if (!isNaN(value) && value > 0) {
-                    normalized.quantidade_placas = value;
-                    console.log(`✅ Usando ${field} para quantidade_placas: ${value}`);
-                    break;
-                }
-            }
-        }
-    }
-    
-    return normalized;
+    const valorConvertido = parseFloat(valorString);
+    return isNaN(valorConvertido) ? null : valorConvertido;
 }
 
 // ================================
-// RESTO DAS FUNÇÕES
+// FUNÇÃO PARA PROCESSAR DADOS MENSAIS
 // ================================
-async function linkDataReal() {
-    console.log('🔗 === VINCULAÇÃO REAL ===');
-    if (!dadosGeoJSON || dadosGeoJSON.length === 0) {
-        throw new Error('Dados GeoJSON não carregados');
-    }
-    if (!dadosExcel || dadosExcel.length === 0) {
-        throw new Error('Dados JSON não carregados');
-    }
-    console.log(`📊 Vinculando ${dadosGeoJSON.length} geometrias com ${dadosExcel.length} registros JSON`);
+function processarDadosMensais(row, tipo) {
+    let campos = [];
     
-    const excelIndex = {};
-    let excelIndexCount = 0;
-    dadosExcel.forEach((row) => {
-        const objectId = extractObjectIdFromExcel(row);
-        if (objectId !== null) {
-            excelIndex[objectId] = row;
-            excelIndexCount++;
+    if (tipo === 'producao') {
+        campos = [
+            ' Produção de energia no mês de janeiro kW do telhado do edifício ',
+            ' Produção de energia no mês de fevereiro kW do telhado do edifício ',
+            ' Produção de energia no mês de março kW do telhado do edifício ',
+            ' Produção de energia no mês de abril kW do telhado do edifício ',
+            ' Produção de energia no mês de maio kW do telhado do edifício ',
+            ' Produção de energia no mês de junho kW do telhado do edifício ',
+            ' Produção de energia no mês de julho kW do telhado do edifício ',
+            ' Produção de energia no mês de agosto kW do telhado do edifício ',
+            ' Produção de energia no mês de setembro kW do telhado do edifício ',
+            ' Produção de energia no mês de outubro kW do telhado do edifício ',
+            ' Produção de energia no mês de novembro kW do telhado do edifício ',
+            ' Produção de energia no mês de dezembro kW do telhado do edifício '
+        ];
+    } else if (tipo === 'radiacao') {
+        campos = [
+            ' Quantidade de Radiação Solar no mês de janeiro (kW.m²) ',
+            ' Quantidade de Radiação Solar no mês de fevereiro (kW.m²) ',
+            ' Quantidade de Radiação Solar no mês de março (kW.m²) ',
+            ' Quantidade de Radiação Solar no mês de abril (kW.m²) ',
+            ' Quantidade de Radiação Solar no mês de maio (kW.m²) ',
+            ' Quantidade de Radiação Solar no mês de junho (kW.m²) ',
+            ' Quantidade de Radiação Solar no mês de julho (kW.m²) ',
+            ' Quantidade de Radiação Solar no mês de agosto (kW.m²) ',
+            ' Quantidade de Radiação Solar no mês de setembro (kW.m²) ',
+            ' Quantidade de Radiação Solar no mês de outubro (kW.m²) ',
+            ' Quantidade de Radiação Solar no mês de novembro (kW.m²) ',
+            ' Quantidade de Radiação Solar no mês de dezembro (kW.m²) '
+        ];
+    }
+    
+    return campos.map(campo => {
+        const valor = row[campo];
+        const valorConvertido = converterNumeroCorreto(valor);
+        return valorConvertido !== null ? valorConvertido : 0;
+    });
+}
+
+// ================================
+// NORMALIZAÇÃO DE DADOS (CORRIGIDA)
+// ================================
+function normalizarDadosExcel(row) {
+    const mapeamento = {
+        'OBJECTID': 'objectid',
+        'FID_1': 'fid',
+        ' Bairros ': 'bairro',
+        'Bairros': 'bairro',
+        ' Área em metros quadrados da edificação ': 'area_edificacao',
+        ' Produção de energia kW do telhado do edifício ': 'producao_telhado',
+        ' Capacidade de Produção de energia em kW por m² ': 'capacidade_por_m2',
+        ' Quantidade de Radiação Máxima Solar nos mêses (kW.m² ': 'radiacao_max',
+        'Quantidade de Radiação Máxima Solar nos mêses (kW.m²': 'radiacao_max',
+        ' Quantidade de Placas Fotovoltaicas capaz de gerar a energia gerada do imovel ': 'quantidade_placas',
+        ' Capacidade de Produção de energia em Placas Fotovoltaicas em kW.h.dia ': 'capacidade_placas_dia',
+        ' Capacidade de Produção de energia em Placas Fotovoltaicas em kW.h.mês ': 'capacidade_placas_mes',
+        ' Potencial médio de geração FV em um dia (kW.dia.m²) ': 'potencial_medio_dia',
+        ' Renda Total ': 'renda_total',
+        ' Renda per capita ': 'renda_per_capita',
+        ' Renda domiciliar per capita ': 'renda_domiciliar_per_capita'
+    };
+    
+    const normalizado = {};
+    
+    Object.entries(row).forEach(([chave, valor]) => {
+        const campoNormalizado = mapeamento[chave] || chave.toLowerCase().replace(/\s+/g, '_');
+        
+        if (valor !== null && valor !== undefined && valor !== '') {
+            // Campo de bairro - manter como string
+            if (chave.includes('Bairros') || campoNormalizado === 'bairro') {
+                normalizado[campoNormalizado] = String(valor).trim();
+            } else {
+                // CORREÇÃO: Usar a função melhorada para números
+                const valorNumerico = converterNumeroCorreto(valor);
+                normalizado[campoNormalizado] = valorNumerico !== null ? valorNumerico : String(valor).trim();
+            }
+        } else {
+            // Valores padrão
+            if (chave.includes('Bairros') || campoNormalizado === 'bairro') {
+                normalizado[campoNormalizado] = 'Não informado';
+            } else {
+                normalizado[campoNormalizado] = 0;
+            }
         }
     });
-    console.log(`📋 Índice JSON criado: ${excelIndexCount} registros`);
     
-    let sucessos = 0;
-    let semDadosExcel = 0;
-    let coordenadasInvalidas = 0;
-    let foraDaRegiao = 0;
+    // Processar dados mensais corrigidos
+    const dadosMensaisProducao = processarDadosMensais(row, 'producao');
+    const dadosMensaisRadiacao = processarDadosMensais(row, 'radiacao');
     
-    dadosCompletos = dadosGeoJSON.map((geo) => {
-        try {
-            const objectId = geo.id;
-            const dadosExcel = excelIndex[objectId];
-            if (!dadosExcel) {
-                semDadosExcel++;
+    normalizado.dados_mensais_producao = dadosMensaisProducao;
+    normalizado.dados_mensais_radiacao = dadosMensaisRadiacao;
+    
+    return normalizado;
+}
+
+// ================================
+// CONVERSÃO DE COORDENADAS
+// ================================
+function converterSIRGAS2000ParaWGS84(utmX, utmY) {
+    if (!utmX || !utmY || isNaN(utmX) || isNaN(utmY)) return null;
+    
+    const a = 6378137.0;
+    const f = 1/298.257222101;
+    const k0 = 0.9996;
+    const lon0 = -45.0 * Math.PI / 180;
+    const FE = 500000;
+    const FN = 10000000;
+    const e2 = 2 * f - f * f;
+    const e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+    
+    const x = utmX - FE;
+    const y = utmY - FN;
+    const M = y / k0;
+    const mu = M / (a * (1 - e2/4 - 3*e2*e2/64 - 5*e2*e2*e2/256));
+    const phi1 = mu + (3*e1/2 - 27*e1*e1*e1/32) * Math.sin(2*mu) +
+                 (21*e1*e1/16 - 55*e1*e1*e1*e1/32) * Math.sin(4*mu) +
+                 (151*e1*e1*e1/96) * Math.sin(6*mu);
+    const C1 = e2 * Math.cos(phi1) * Math.cos(phi1);
+    const T1 = Math.tan(phi1) * Math.tan(phi1);
+    const N1 = a / Math.sqrt(1 - e2 * Math.sin(phi1) * Math.sin(phi1));
+    const R1 = a * (1 - e2) / Math.pow(1 - e2 * Math.sin(phi1) * Math.sin(phi1), 1.5);
+    const D = x / (N1 * k0);
+    
+    const lat = phi1 - (N1 * Math.tan(phi1) / R1) *
+               (D*D/2 * (1 - D*D/12 * (5 + 3*T1 + 10*C1 - 4*C1*C1 - 9*e2)));
+    const lon = lon0 + (D - D*D*D/6 * (1 + 2*T1 + C1)) / Math.cos(phi1);
+    
+    const latDeg = lat * 180 / Math.PI;
+    const lonDeg = lon * 180 / Math.PI;
+    
+    if (latDeg < -2.800 || latDeg > -2.200 || lonDeg < -44.600 || lonDeg > -43.900) return null;
+    
+    return [latDeg, lonDeg];
+}
+
+function processGeometrySIRGAS2000(feature) {
+    const geometry = feature.geometry;
+    if (!geometry || !geometry.coordinates) return null;
+    
+    let pontos = [];
+    if (geometry.type === 'Polygon' && geometry.coordinates[0]) {
+        pontos = geometry.coordinates[0];
+    } else if (geometry.type === 'MultiPolygon' && geometry.coordinates[0] && geometry.coordinates[0][0]) {
+        pontos = geometry.coordinates[0][0];
+    } else {
+        return null;
+    }
+    
+    if (!pontos || pontos.length === 0) return null;
+    
+    const pontosConvertidos = [];
+    for (const ponto of pontos) {
+        if (ponto && ponto.length >= 2) {
+            const coordenada = converterSIRGAS2000ParaWGS84(ponto[0], ponto[1]);
+            if (coordenada) {
+                pontosConvertidos.push([coordenada[0], coordenada[1]]);
             }
-            const processedGeometry = processGeometrySIRGAS2000(geo);
-            if (!processedGeometry) {
-                coordenadasInvalidas++;
-                return null;
-            }
-            if (!isValidSaoLuisCoordinate(processedGeometry.centroid[0], processedGeometry.centroid[1])) {
-                foraDaRegiao++;
-                return null;
-            }
-            const combinedItem = {
-                id: objectId,
-                coordinates: processedGeometry.coordinates,
-                centroid: processedGeometry.centroid,
-                geometryType: geo.geometryType,
-                properties: combineProperties(geo, dadosExcel, objectId),
-                originalGeoProps: geo.originalProperties,
-                excelData: dadosExcel,
-                isLinked: !!dadosExcel
-            };
-            if (dadosExcel) {
-                sucessos++;
-            }
-            return combinedItem;
-        } catch (error) {
-            console.error(`❌ Erro no OBJECTID ${geo.id}:`, error);
-            coordenadasInvalidas++;
-            return null;
         }
-    }).filter(item => item !== null);
-    
-    console.log('📊 === RESULTADO FINAL ===');
-    console.log(`✅ Sucessos (com dados JSON): ${sucessos}`);
-    console.log(`📍 Sem dados JSON: ${semDadosExcel}`);
-    console.log(`🗺️ Fora de São Luís: ${foraDaRegiao}`);
-    console.log(`❌ Coordenadas inválidas: ${coordenadasInvalidas}`);
-    console.log(`📈 Total válido: ${dadosCompletos.length}`);
-    console.log(`📈 Taxa de vinculação: ${dadosCompletos.length > 0 ? ((sucessos / dadosCompletos.length) * 100).toFixed(1) : 0}%`);
-    
-    if (dadosCompletos.length === 0) {
-        throw new Error('Nenhum dado válido após processamento');
     }
-    if (sucessos > 0) {
-        console.log(`✅ Vinculação bem-sucedida: ${sucessos} imóveis`);
-        showMessage(`✅ Vinculação: ${sucessos} imóveis com dados JSON`);
+    
+    if (pontosConvertidos.length === 0) return null;
+    
+    const centroide = calcularCentroide(pontosConvertidos);
+    if (!centroide || centroide[0] < -2.800 || centroide[0] > -2.200 || centroide[1] < -44.600 || centroide[1] > -43.900) {
+        return null;
     }
+    
+    return {
+        coordinates: pontosConvertidos,
+        centroid: centroide
+    };
+}
+
+function calcularCentroide(pontos) {
+    if (!pontos || pontos.length === 0) return null;
+    let somaLat = 0, somaLng = 0;
+    pontos.forEach(ponto => {
+        somaLat += ponto[0];
+        somaLng += ponto[1];
+    });
+    return [somaLat / pontos.length, somaLng / pontos.length];
+}
+
+// ================================
+// MERGE PRINCIPAL
+// ================================
+async function executarMergeCompleto() {
+    console.log('🔗 === EXECUTANDO MERGE ===');
+    
+    // Resetar estatísticas
+    estatisticasMerge = { totalGeoJSON: 0, totalExcel: 0, sucessos: 0, semMatch: 0, erros: 0 };
+    
+    // Carregar dados
+    console.log('📥 1/3 - Carregando dados...');
+    await carregarGeoJSON();
+    await carregarExcel();
+    
+    // Criar índice Excel
+    console.log('📋 2/3 - Criando índice...');
+    const indiceExcel = new Map();
+    dadosExcelRaw.forEach((row, index) => {
+        const objectId = extrairObjectIdExcel(row, index);
+        if (objectId !== null) {
+            const dadosNormalizados = normalizarDadosExcel(row);
+            indiceExcel.set(objectId, dadosNormalizados);
+        }
+    });
+    console.log(`📊 Índice criado: ${indiceExcel.size} registros`);
+    
+    // Processar merge
+    console.log('🔗 3/3 - Executando merge...');
+    dadosCompletos = [];
+    
+    for (let i = 0; i < dadosGeoJSONRaw.features.length; i++) {
+        const feature = dadosGeoJSONRaw.features[i];
+        
+        try {
+            const objectId = extrairObjectIdGeoJSON(feature.properties, i);
+            const geometriaProcessada = processGeometrySIRGAS2000(feature);
+            
+            if (!geometriaProcessada) {
+                estatisticasMerge.erros++;
+                continue;
+            }
+            
+            const dadosExcel = indiceExcel.get(objectId);
+            const temMatch = !!dadosExcel;
+            
+            if (temMatch) {
+                estatisticasMerge.sucessos++;
+            } else {
+                estatisticasMerge.semMatch++;
+            }
+            
+            const itemCombinado = {
+                id: objectId,
+                coordinates: geometriaProcessada.coordinates,
+                centroid: geometriaProcessada.centroid,
+                geometryType: feature.geometry.type,
+                properties: {
+                    id: objectId,
+                    objectid: objectId,
+                    bairro: dadosExcel?.bairro || 'Não informado',
+                    area_edificacao: dadosExcel?.area_edificacao || 0,
+                    producao_telhado: dadosExcel?.producao_telhado || 0,
+                    capacidade_por_m2: dadosExcel?.capacidade_por_m2 || 0,
+                    radiacao_max: dadosExcel?.radiacao_max || 0,
+                    quantidade_placas: dadosExcel?.quantidade_placas || 0,
+                    capacidade_placas_dia: dadosExcel?.capacidade_placas_dia || 0,
+                    capacidade_placas_mes: dadosExcel?.capacidade_placas_mes || 0,
+                    potencial_medio_dia: dadosExcel?.potencial_medio_dia || 0,
+                    renda_total: dadosExcel?.renda_total || 0,
+                    renda_per_capita: dadosExcel?.renda_per_capita || 0,
+                    renda_domiciliar_per_capita: dadosExcel?.renda_domiciliar_per_capita || 0,
+                    dados_mensais_producao: dadosExcel?.dados_mensais_producao || new Array(12).fill(0),
+                    dados_mensais_radiacao: dadosExcel?.dados_mensais_radiacao || new Array(12).fill(0)
+                },
+                originalGeoProperties: feature.properties,
+                excelData: dadosExcel,
+                isLinked: temMatch
+            };
+            
+            dadosCompletos.push(itemCombinado);
+            
+        } catch (error) {
+            console.error(`❌ Erro feature ${i}:`, error);
+            estatisticasMerge.erros++;
+        }
+    }
+    
+    // Atualizar variáveis globais
     window.dadosCompletos = dadosCompletos;
-    calcularEstatisticas();
-    calcularEstatisticasPorBairro();
-    updateSummaryCards();
+    window.dadosGeoJSON = dadosGeoJSONRaw.features;
+    window.dadosExcel = dadosExcelRaw;
+    window.estatisticasMerge = estatisticasMerge;
+    
+    // Relatório final
+    console.log('📊 === RELATÓRIO MERGE ===');
+    console.log(`✅ Sucessos: ${estatisticasMerge.sucessos}`);
+    console.log(`⚠️ Sem match: ${estatisticasMerge.semMatch}`);
+    console.log(`❌ Erros: ${estatisticasMerge.erros}`);
+    console.log(`📈 Total: ${dadosCompletos.length}`);
+    console.log(`📈 Taxa: ${((estatisticasMerge.sucessos / dadosCompletos.length) * 100).toFixed(1)}%`);
+    
     return dadosCompletos;
 }
 
-function processGeometrySIRGAS2000(geoItem) {
-    try {
-        const coords = geoItem.coordinates;
-        const geomType = geoItem.geometryType;
-        if (!coords || !Array.isArray(coords)) {
-            return null;
-        }
-        let points = [];
-        if (geomType === 'Polygon' && coords[0]) {
-            points = coords[0];
-        } else if (geomType === 'MultiPolygon' && coords[0] && coords[0][0]) {
-            points = coords[0][0];
-        }
-        if (!points || points.length === 0) {
-            return null;
-        }
-        const convertedPoints = points.map(point => {
-            if (!point || point.length < 2) return null;
-            return convertSIRGAS2000UTMToWGS84(point[0], point[1]);
-        }).filter(point => point !== null);
-        if (convertedPoints.length === 0) {
-            return null;
-        }
-        const centroid = calculateCentroid(convertedPoints);
-        if (!centroid || !isValidSaoLuisCoordinate(centroid[0], centroid[1])) {
-            return null;
-        }
-        return {
-            coordinates: convertedPoints,
-            centroid: centroid
-        };
-    } catch (error) {
-        return null;
-    }
-}
-
-function calculateCentroid(points) {
-    if (!points || points.length === 0) return null;
-    let sumLat = 0;
-    let sumLng = 0;
-    points.forEach(point => {
-        sumLat += point[0];
-        sumLng += point[1];
-    });
-    return [sumLat / points.length, sumLng / points.length];
-}
-
-function combineProperties(geoItem, excelData, objectId) {
-    const combined = {
-        id: objectId,
-        objectid: objectId,
-        bairro: excelData?.bairro || 'Não informado',
-        area_edificacao: excelData?.area_edificacao || 0,
-        producao_telhado: excelData?.producao_telhado || 0,
-        capacidade_por_m2: excelData?.capacidade_por_m2 || 0,
-        radiacao_max: excelData?.radiacao_max || 0,
-        quantidade_placas: excelData?.quantidade_placas || 0,
-        capacidade_placas_dia: excelData?.capacidade_placas_dia || 0,
-        capacidade_placas_mes: excelData?.capacidade_placas_mes || 0,
-        potencial_medio_dia: excelData?.potencial_medio_dia || 0,
-        renda_total: excelData?.renda_total || 0,
-        renda_per_capita: excelData?.renda_per_capita || 0,
-        renda_domiciliar_per_capita: excelData?.renda_domiciliar_per_capita || 0
-    };
-    
-    return combined;
-}
-
 // ================================
-// CALCULAR ESTATÍSTICAS GLOBAIS E POR BAIRRO
+// CÁLCULOS DE ESTATÍSTICAS
 // ================================
 function calcularEstatisticas() {
-    if (dadosCompletos.length === 0) return;
-    const totalImoveis = dadosCompletos.length;
+    if (!dadosCompletos || dadosCompletos.length === 0) {
+        estatisticas = { total_imoveis: 0, producao_total: 0, media_producao: 0 };
+        return;
+    }
     
-    // CORRIGIDO: Usar capacidade_placas_mes (campo correto para Produção Total)
-    const producaoTotal = dadosCompletos.reduce((sum, item) => sum + (item.properties.capacidade_placas_mes || 0), 0);
+    const totalImoveis = dadosCompletos.length;
+    const producaoTotal = dadosCompletos.reduce((sum, item) => {
+        return sum + (item.properties?.capacidade_por_m2 || 0);
+    }, 0);
     const mediaProducao = totalImoveis > 0 ? producaoTotal / totalImoveis : 0;
     
-    estatisticas = {
-        total_imoveis: totalImoveis,
-        producao_total: producaoTotal,
-        media_producao: mediaProducao
-    };
+    estatisticas = { total_imoveis: totalImoveis, producao_total: producaoTotal, media_producao: mediaProducao };
     window.estatisticas = estatisticas;
-    console.log('📊 Estatísticas globais calculadas:', estatisticas);
+    console.log('📊 Estatísticas calculadas:', estatisticas);
 }
 
 function calcularEstatisticasPorBairro() {
-    if (dadosCompletos.length === 0) return;
+    if (!dadosCompletos || dadosCompletos.length === 0) {
+        estatisticasPorBairro = {};
+        return;
+    }
     
-    // Agrupar dados por bairro
     const dadosPorBairro = {};
-    
     dadosCompletos.forEach(item => {
-        const bairro = item.properties.bairro || 'Não informado';
-        if (!dadosPorBairro[bairro]) {
-            dadosPorBairro[bairro] = [];
-        }
+        const bairro = item.properties?.bairro || 'Não informado';
+        if (!dadosPorBairro[bairro]) dadosPorBairro[bairro] = [];
         dadosPorBairro[bairro].push(item);
     });
     
-    // Calcular estatísticas para cada bairro
     estatisticasPorBairro = {};
-    
     Object.entries(dadosPorBairro).forEach(([bairro, imoveis]) => {
-        const totalImoveis = imoveis.length;
-        
-        // Calcular médias mensais simuladas para o bairro
-        const somaProducaoTelhado = imoveis.reduce((sum, item) => sum + (item.properties.producao_telhado || 0), 0);
-        const somaRadiacaoMax = imoveis.reduce((sum, item) => sum + (item.properties.radiacao_max || 0), 0);
-        
-        const mediaProducaoTelhado = totalImoveis > 0 ? somaProducaoTelhado / totalImoveis : 0;
-        const mediaRadiacaoMax = totalImoveis > 0 ? somaRadiacaoMax / totalImoveis : 0;
-        
-        // Gerar dados mensais simulados baseados nas médias do bairro
-        const mediaProducaoMensal = generateMonthlyAverages(mediaProducaoTelhado);
-        const mediaRadiacaoMensal = generateMonthlyAverages(mediaRadiacaoMax);
-        
         estatisticasPorBairro[bairro] = {
-            total_imoveis: totalImoveis,
-            media_producao_mensal: mediaProducaoMensal,
-            media_radiacao_mensal: mediaRadiacaoMensal
+            total_imoveis: imoveis.length,
+            media_producao_mensal: new Array(12).fill(0),
+            media_radiacao_mensal: new Array(12).fill(0)
         };
     });
     
     window.estatisticasPorBairro = estatisticasPorBairro;
-    console.log('📊 Estatísticas por bairro calculadas:', estatisticasPorBairro);
+    console.log('📊 Bairros calculados:', Object.keys(estatisticasPorBairro).length);
 }
 
 // ================================
-// GERAR MÉDIAS MENSAIS SIMULADAS
+// INTERFACE E FILTROS
 // ================================
-function generateMonthlyAverages(baseValue) {
-    if (!baseValue || baseValue === 0) {
-        return new Array(12).fill(0);
-    }
-    
-    // Simular variação sazonal (maior no verão, menor no inverno)
-    const seasonalFactors = [1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2];
-    
-    return seasonalFactors.map(factor => {
-        return (baseValue / 12) * factor;
-    });
-}
-
-// CORRIGIDO: Cards de resumo com capacidade_placas_mes
 function updateSummaryCards() {
     const dados = filtrarDados();
     const totalEl = document.getElementById('total-imoveis-display');
     const producaoEl = document.getElementById('producao-total-display');
     const mediaEl = document.getElementById('media-imovel-display');
     
-    if (totalEl) {
-        totalEl.textContent = dados.length.toLocaleString('pt-BR');
-    }
+    if (totalEl) totalEl.textContent = dados.length.toLocaleString('pt-BR');
     if (producaoEl) {
-        // CORRIGIDO: Usar capacidade_placas_mes conforme solicitado
-        const total = dados.reduce((sum, item) => sum + (item.properties.capacidade_placas_mes || 0), 0);
-        producaoEl.textContent = formatNumber(total, 0);
+        const total = dados.reduce((sum, item) => sum + (item.properties?.capacidade_por_m2 || 0), 0);
+        producaoEl.textContent = formatNumber(total, 2);
     }
     if (mediaEl) {
-        // CORRIGIDO: Usar capacidade_placas_mes conforme solicitado
-        const total = dados.reduce((sum, item) => sum + (item.properties.capacidade_placas_mes || 0), 0);
+        const total = dados.reduce((sum, item) => sum + (item.properties?.capacidade_por_m2 || 0), 0);
         const media = dados.length > 0 ? total / dados.length : 0;
         mediaEl.textContent = formatNumber(media, 2);
     }
@@ -657,19 +544,12 @@ function updateSummaryCards() {
 
 function filtrarDados() {
     return dadosCompletos.filter(item => {
+        if (!item || !item.properties) return false;
         const props = item.properties;
-        if (filtrosAtivos.bairros.length > 0) {
-            if (!filtrosAtivos.bairros.includes(props.bairro)) {
-                return false;
-            }
-        }
+        if (filtrosAtivos.bairros.length > 0 && !filtrosAtivos.bairros.includes(props.bairro)) return false;
         const valor = props[filtrosAtivos.info] || 0;
-        if (filtrosAtivos.minValue !== null && valor < filtrosAtivos.minValue) {
-            return false;
-        }
-        if (filtrosAtivos.maxValue !== null && valor > filtrosAtivos.maxValue) {
-            return false;
-        }
+        if (filtrosAtivos.minValue !== null && valor < filtrosAtivos.minValue) return false;
+        if (filtrosAtivos.maxValue !== null && valor > filtrosAtivos.maxValue) return false;
         return true;
     });
 }
@@ -681,15 +561,11 @@ function selecionarImovel(imovelId) {
         updateInfoCards(imovel);
         updateRelatorio(imovel);
         updateCharts(imovel);
-        console.log(`✅ Imóvel ${imovelId} selecionado do bairro: ${imovel.properties.bairro}`);
-        console.log('📊 Dados vinculados:', imovel.isLinked ? 'SIM' : 'NÃO');
-        if (window.centerOnImovel) {
-            window.centerOnImovel(imovelId);
-        }
+        console.log(`✅ Imóvel ${imovelId} selecionado: ${imovel.properties.bairro}`);
+        if (window.centerOnImovel) window.centerOnImovel(imovelId);
     }
 }
 
-// CORRIGIDO: Cards de informações com debug
 function updateInfoCards(imovel = null) {
     const elementos = {
         'area-edificacao-display': imovel ? (imovel.properties.area_edificacao || 0) : 0,
@@ -715,37 +591,8 @@ function updateInfoCards(imovel = null) {
             }
         }
     });
-    
-    // Debug detalhado dos valores
-    if (imovel) {
-        console.log('🔍 === DEBUG VALORES DOS CARDS ===');
-        console.log(`Imóvel ID: ${imovel.id}`);
-        console.log(`Bairro: ${imovel.properties.bairro}`);
-        console.log(`Área: ${imovel.properties.area_edificacao}`);
-        console.log(`Radiação Máxima: ${imovel.properties.radiacao_max}`);
-        console.log(`Capacidade por m²: ${imovel.properties.capacidade_por_m2}`);
-        console.log(`Capacidade Placas Mês: ${imovel.properties.capacidade_placas_mes}`);
-        console.log(`Quantidade de Placas: ${imovel.properties.quantidade_placas}`);
-        console.log(`Potencial Médio: ${imovel.properties.potencial_medio_dia}`);
-        console.log('Dados originais Excel:', imovel.excelData);
-        
-        // Verificar se algum campo está zerado
-        const camposZerados = [];
-        if (!imovel.properties.radiacao_max || imovel.properties.radiacao_max === 0) {
-            camposZerados.push('radiacao_max');
-        }
-        if (!imovel.properties.quantidade_placas || imovel.properties.quantidade_placas === 0) {
-            camposZerados.push('quantidade_placas');
-        }
-        
-        if (camposZerados.length > 0) {
-            console.log('⚠️ Campos zerados detectados:', camposZerados);
-            console.log('📋 Todos os campos disponíveis no Excel:', Object.keys(imovel.excelData || {}));
-        }
-    }
 }
 
-// CORRIGIDO: Relatório com texto corrido conforme modelo
 function updateRelatorio(imovel = null) {
     const tituloEl = document.getElementById('relatorio-titulo');
     const conteudoEl = document.getElementById('relatorio-conteudo');
@@ -755,33 +602,274 @@ function updateRelatorio(imovel = null) {
         const props = imovel.properties;
         tituloEl.textContent = `📊 Relatório - Imóvel ${imovel.id}`;
         
-        // TEXTO CORRIDO CONFORME SOLICITADO
+        // NOVO TEXTO CORRIDO DETALHADO
         const textoRelatorio = `O imóvel selecionado no Bairro ${props.bairro}, localizado nas coordenadas (${imovel.centroid[0].toFixed(6)}, ${imovel.centroid[1].toFixed(6)}), possui ${formatNumber(props.area_edificacao, 2)} m², com Quantidade de Radiação Máxima Solar nos 12 meses do ano de ${formatNumber(props.radiacao_max, 2)} kW/m², apresentando uma Capacidade de Produção de energia de ${formatNumber(props.capacidade_por_m2, 2)} kW por m², com produção diária de ${formatNumber(props.capacidade_placas_dia, 2)} kWh e produção média mensal de ${formatNumber(props.capacidade_placas_mes, 2)} kWh. Para essa produção estima-se a necessidade de ${formatNumber(props.quantidade_placas, 0)} placas fotovoltaicas. O imóvel apresenta um potencial médio de geração de ${formatNumber(props.potencial_medio_dia, 2)} kW.dia/m² e está localizado em uma região com renda total de R$ ${formatNumber(props.renda_total, 2)}, renda per capita de R$ ${formatNumber(props.renda_per_capita, 2)} e renda domiciliar per capita de R$ ${formatNumber(props.renda_domiciliar_per_capita, 2)}.`;
         
-        conteudoEl.innerHTML = `<p style="text-align: justify; line-height: 1.6;">${textoRelatorio}</p>`;
+        conteudoEl.innerHTML = `
+            <div style="
+                background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+                padding: 20px;
+                border-radius: 10px;
+                border-left: 4px solid #28a745;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            ">
+                <div style="
+                    display: flex;
+                    align-items: center;
+                    margin-bottom: 15px;
+                    padding-bottom: 10px;
+                    border-bottom: 2px solid #dee2e6;
+                ">
+                    <div style="
+                        background: #28a745;
+                        color: white;
+                        padding: 8px 12px;
+                        border-radius: 6px;
+                        font-weight: bold;
+                        margin-right: 10px;
+                        font-size: 14px;
+                    ">
+                        📊 ANÁLISE TÉCNICA
+                    </div>
+                    <div style="
+                        color: #6c757d;
+                        font-size: 12px;
+                        font-style: italic;
+                    ">
+                        Relatório detalhado de potencial solar e socioeconômico
+                    </div>
+                </div>
+                
+                <p style="
+                    text-align: justify;
+                    line-height: 1.8;
+                    font-size: 14px;
+                    color: #343a40;
+                    margin: 0;
+                    text-indent: 20px;
+                ">
+                    ${textoRelatorio}
+                </p>
+                
+                <div style="
+                    margin-top: 15px;
+                    padding-top: 10px;
+                    border-top: 1px solid #dee2e6;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    font-size: 11px;
+                    color: #6c757d;
+                ">
+                    <span>
+                        📍 <strong>Coordenadas:</strong> ${imovel.centroid[0].toFixed(6)}, ${imovel.centroid[1].toFixed(6)}
+                    </span>
+                    <span>
+                        🏠 <strong>ID:</strong> ${imovel.id}
+                    </span>
+                    <span>
+                        📅 <strong>Gerado em:</strong> ${new Date().toLocaleDateString('pt-BR')}
+                    </span>
+                </div>
+            </div>
+        `;
     } else {
         tituloEl.textContent = '📊 Relatório do Imóvel';
         conteudoEl.innerHTML = `
-            <p>Selecione um imóvel no mapa para ver o relatório detalhado.</p>
-            <p><strong>Sistema FINAL:</strong></p>
-            <ul>
-                <li>✅ Médias por bairro implementadas</li>
-                <li>✅ Cards corrigidos com capacidade_placas_mes</li>
-                <li>✅ Legenda em gradiente</li>
-                <li>✅ Debug completo de campos</li>
-                <li>✅ Filtros que removem polígonos</li>
-            </ul>
+            <div style="
+                background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+                padding: 30px;
+                border-radius: 10px;
+                border: 2px dashed #dee2e6;
+                text-align: center;
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            ">
+                <div style="
+                    font-size: 48px;
+                    margin-bottom: 15px;
+                    color: #6c757d;
+                ">
+                    📊
+                </div>
+                <h3 style="
+                    color: #495057;
+                    margin-bottom: 10px;
+                    font-size: 18px;
+                ">
+                    Relatório Técnico Solar
+                </h3>
+                <p style="
+                    color: #6c757d;
+                    font-size: 14px;
+                    margin-bottom: 20px;
+                    line-height: 1.6;
+                ">
+                    Selecione um imóvel no mapa para gerar um relatório detalhado<br>
+                    contendo análise de potencial solar e dados socioeconômicos.
+                </p>
+                <div style="
+                    background: #e7f3ff;
+                    padding: 10px;
+                    border-radius: 6px;
+                    border-left: 3px solid #0066cc;
+                    font-size: 12px;
+                    color: #0066cc;
+                    font-style: italic;
+                ">
+                    💡 Dica: Clique em qualquer polígono azul no mapa para começar
+                </div>
+            </div>
         `;
     }
 }
 
+// ================================
+// FUNÇÃO PARA TESTAR A CONVERSÃO
+// ================================
+function testarConversaoNumeros() {
+    console.log('🧪 === TESTE DE CONVERSÃO DE NÚMEROS (CORRIGIDO) ===');
+    
+    const testes = [
+        { input: '21.72', esperado: 21.72, desc: 'Formato americano' },
+        { input: '21,72', esperado: 21.72, desc: 'Formato brasileiro' },
+        { input: '65.00', esperado: 65.00, desc: 'Formato americano com zero' },
+        { input: '65,00', esperado: 65.00, desc: 'Formato brasileiro com zero' },
+        { input: '1.234,56', esperado: 1234.56, desc: 'Brasileiro com milhares' },
+        { input: '1,234.56', esperado: 1234.56, desc: 'Americano com milhares' },
+        { input: '49.00', esperado: 49.00, desc: 'Número simples' },
+        { input: '0.15', esperado: 0.15, desc: 'Decimal americano' },
+        { input: '0,15', esperado: 0.15, desc: 'Decimal brasileiro' },
+        { input: '1000', esperado: 1000, desc: 'Inteiro puro' },
+        { input: 21.72, esperado: 21.72, desc: 'Já é número' }
+    ];
+    
+    let corretos = 0;
+    let total = testes.length;
+    
+    testes.forEach(teste => {
+        const resultado = converterNumeroCorreto(teste.input);
+        const correto = Math.abs(resultado - teste.esperado) < 0.001;
+        
+        console.log(
+            `${correto ? '✅' : '❌'} "${teste.input}" → ${resultado} ` +
+            `(esperado: ${teste.esperado}) - ${teste.desc}`
+        );
+        
+        if (correto) corretos++;
+    });
+    
+    console.log(`\n📊 Resultado: ${corretos}/${total} testes passaram (${((corretos/total)*100).toFixed(1)}%)`);
+    
+    if (corretos === total) {
+        console.log('🎉 Todos os testes passaram! Conversão funcionando perfeitamente.');
+    } else {
+        console.log('⚠️ Alguns testes falharam. Verifique a função de conversão.');
+    }
+}
+
+// ================================
+// FUNÇÃO PARA REPROCESSAR DADOS
+// ================================
+function reprocessarDados() {
+    console.log('🔄 === REPROCESSANDO DADOS COM CORREÇÃO ===');
+    
+    if (!window.dadosExcelRaw || window.dadosExcelRaw.length === 0) {
+        console.error('❌ Dados Excel não disponíveis');
+        return;
+    }
+    
+    console.log('📊 Reprocessando com correção numérica...');
+    
+    // Executar merge novamente
+    executarMergeCompleto().then(() => {
+        calcularEstatisticas();
+        calcularEstatisticasPorBairro();
+        updateSummaryCards();
+        
+        console.log('✅ Dados reprocessados com sucesso!');
+        
+        // Mostrar exemplo de dados corrigidos
+        const exemploComDados = dadosCompletos.find(item => 
+            item.isLinked && item.properties?.area_edificacao > 0
+        );
+        
+        if (exemploComDados) {
+            console.log('📋 Exemplo de dados corrigidos:');
+            console.log(`   ID: ${exemploComDados.id}`);
+            console.log(`   Bairro: ${exemploComDados.properties.bairro}`);
+            console.log(`   Área: ${exemploComDados.properties.area_edificacao} m²`);
+            console.log(`   Capacidade: ${exemploComDados.properties.capacidade_por_m2} kW/m²`);
+            console.log(`   Produção: ${exemploComDados.properties.producao_telhado} kW`);
+        }
+        
+        // Atualizar mapa se necessário
+        if (window.addPolygonsToMap) {
+            window.addPolygonsToMap();
+        }
+        
+        showMessage('✅ Dados reprocessados com correção numérica!');
+    }).catch(error => {
+        console.error('❌ Erro no reprocessamento:', error);
+        showMessage('❌ Erro no reprocessamento dos dados');
+    });
+}
+
+// ================================
+// DIAGNÓSTICO
+// ================================
+function diagnosticDataDetailed() {
+    console.log('🔍 === DIAGNÓSTICO DETALHADO ===');
+    
+    if (dadosCompletos && dadosCompletos.length > 0) {
+        console.log(`📍 Total de dados: ${dadosCompletos.length}`);
+        
+        const comDadosExcel = dadosCompletos.filter(item => item.isLinked);
+        const comValoresReais = dadosCompletos.filter(item => 
+            item.properties?.area_edificacao > 0 || 
+            item.properties?.producao_telhado > 0 || 
+            item.properties?.capacidade_por_m2 > 0
+        );
+        
+        console.log(`✅ Com dados Excel: ${comDadosExcel.length} (${((comDadosExcel.length/dadosCompletos.length)*100).toFixed(1)}%)`);
+        console.log(`📊 Com valores reais: ${comValoresReais.length} (${((comValoresReais.length/dadosCompletos.length)*100).toFixed(1)}%)`);
+        
+        const bairros = [...new Set(dadosCompletos.map(item => item.properties?.bairro).filter(b => b && b !== 'Não informado'))];
+        console.log(`🏘️ Bairros únicos: ${bairros.length}`);
+        console.log(`🏘️ Lista de bairros:`, bairros.slice(0, 10));
+        
+        const exemploComDados = dadosCompletos.find(item => item.isLinked && item.properties?.area_edificacao > 0);
+        if (exemploComDados) {
+            console.log('📋 Exemplo completo:');
+            console.log(`   ID: ${exemploComDados.id}`);
+            console.log(`   Bairro: ${exemploComDados.properties.bairro}`);
+            console.log(`   Área: ${exemploComDados.properties.area_edificacao} m²`);
+            console.log(`   Produção: ${exemploComDados.properties.producao_telhado} kW`);
+        }
+    } else {
+        console.error('❌ Nenhum dado carregado');
+    }
+    
+    console.log('📊 Merge stats:', estatisticasMerge);
+    console.log('📊 Excel disponível:', !!window.dadosExcelRaw);
+    
+    if (window.dadosExcelRaw && window.dadosExcelRaw.length > 0) {
+        const primeiro = window.dadosExcelRaw[0];
+        console.log('📊 Primeiro Excel:', primeiro);
+        console.log('📊 Bairro Excel:', primeiro[' Bairros ']);
+    }
+}
+
+// ================================
+// INICIALIZAÇÃO DOS MÓDULOS
+// ================================
 function initializeCharts() {
     console.log('📊 Charts inicializados');
     if (window.initializeCharts && typeof window.initializeCharts === 'function') {
         try {
             window.initializeCharts();
         } catch (error) {
-            console.error('❌ Erro ao inicializar charts:', error);
+            console.error('❌ Erro charts:', error);
         }
     }
 }
@@ -792,7 +880,7 @@ function initializeFilters() {
         try {
             window.initializeFilters();
         } catch (error) {
-            console.error('❌ Erro ao inicializar filtros:', error);
+            console.error('❌ Erro filtros:', error);
         }
     }
 }
@@ -808,15 +896,14 @@ function initializeEvents() {
             }
         });
     }
+    
     document.addEventListener('keydown', function(e) {
         if (e.ctrlKey && e.key === 'd') {
             e.preventDefault();
             diagnosticDataDetailed();
         }
         if (e.key === 'Escape') {
-            if (window.clearSelection) {
-                window.clearSelection();
-            }
+            if (window.clearSelection) window.clearSelection();
             imovelSelecionado = null;
             updateInfoCards();
             updateRelatorio();
@@ -835,74 +922,87 @@ function updateCharts(imovel = null) {
     }
 }
 
-function diagnosticDataDetailed() {
-    console.log('🔍 === DIAGNÓSTICO DETALHADO ===');
-    if (dadosGeoJSON && dadosGeoJSON.length > 0) {
-        console.log(`📍 GeoJSON: ${dadosGeoJSON.length} features`);
-        const objectIds = dadosGeoJSON.map(item => item.id);
-        const uniqueIds = new Set(objectIds);
-        console.log(`📋 OBJECTIDs GeoJSON: ${objectIds.length} total, ${uniqueIds.size} únicos`);
-        console.log(`📋 Range GeoJSON: ${Math.min(...objectIds)} até ${Math.max(...objectIds)}`);
-    }
-    if (dadosExcel && dadosExcel.length > 0) {
-        console.log(`📊 JSON: ${dadosExcel.length} registros`);
-        const objectIds = dadosExcel.map(row => extractObjectIdFromExcel(row)).filter(id => id !== null);
-        const uniqueIds = new Set(objectIds);
-        console.log(`📋 OBJECTIDs JSON: ${objectIds.length} válidos, ${uniqueIds.size} únicos`);
-        if (objectIds.length > 0) {
-            console.log(`📋 Range JSON: ${Math.min(...objectIds)} até ${Math.max(...objectIds)}`);
-        }
-        const firstRow = dadosExcel[0];
-        console.log(`📋 Campos disponíveis (${Object.keys(firstRow).length}):`, Object.keys(firstRow));
-    }
-    if (dadosGeoJSON.length > 0 && dadosExcel.length > 0) {
-        const geoIds = new Set(dadosGeoJSON.map(item => item.id));
-        const excelIds = new Set(dadosExcel.map(row => extractObjectIdFromExcel(row)).filter(id => id !== null));
-        const intersecao = new Set([...geoIds].filter(id => excelIds.has(id)));
-        console.log('🔗 ANÁLISE DE VINCULAÇÃO:');
-        console.log(`  📍 GeoJSON: ${geoIds.size} IDs únicos`);
-        console.log(`  📊 JSON: ${excelIds.size} IDs únicos`);
-        console.log(`  🎯 Interseção: ${intersecao.size} IDs comuns`);
-        if (intersecao.size > 0) {
-            const taxaVinculacao = (intersecao.size / Math.min(geoIds.size, excelIds.size)) * 100;
-            console.log(`  📈 Taxa de vinculação: ${taxaVinculacao.toFixed(1)}%`);
-            console.log(`  ✅ Primeiros IDs comuns:`, [...intersecao].slice(0, 5));
-        }
-    }
-}
-
+// ================================
+// INICIALIZAÇÃO PRINCIPAL
+// ================================
 async function initializeDashboard() {
-    console.log('📊 === SOLARMAP - VERSÃO FINAL ===');
+    console.log('📊 === SOLARMAP - VERSÃO LIMPA COM CORREÇÃO NUMÉRICA ===');
+    
     try {
+        // Verificações básicas
         if (window.location.protocol === 'file:') {
             console.error('❌ Use Live Server!');
             showMessage('❌ Use Live Server!');
             return;
         }
+        
         console.log('✅ Live Server detectado');
-        console.log('📍 1/6 - Carregando GeoJSON...');
-        await loadGeoJSON();
-        console.log('📊 2/6 - Carregando JSON...');
-        await loadExcelData();
-        console.log('🔍 3/6 - Diagnóstico...');
-        diagnosticDataDetailed();
-        console.log('🔗 4/6 - Vinculação...');
-        await linkDataReal();
-        console.log('🗺️ 5/6 - Criando mapa...');
+        
+        if (typeof XLSX === 'undefined') {
+            throw new Error('XLSX não carregada');
+        }
+        console.log('✅ XLSX disponível');
+        
+        // 1. Executar merge
+        console.log('🔗 1/5 - Executando merge...');
+        await executarMergeCompleto();
+        
+        // 2. Calcular estatísticas
+        console.log('📊 2/5 - Calculando estatísticas...');
+        calcularEstatisticas();
+        calcularEstatisticasPorBairro();
+        updateSummaryCards();
+        
+        // 3. Criar mapa
+        console.log('🗺️ 3/5 - Criando mapa...');
         await initMapAndWait();
-        console.log('📍 6/6 - Adicionando polígonos...');
+        
+        // 4. Adicionar polígonos
+        console.log('📍 4/5 - Adicionando polígonos...');
         await addPolygonsAndWait();
+        
+        // 5. Inicializar módulos
+        console.log('🎯 5/5 - Inicializando módulos...');
         initializeCharts();
         initializeFilters();
         initializeEvents();
-        console.log('✅ Dashboard FINAL inicializado!');
-        showMessage('✅ SolarMap FINAL carregado com todas as correções!');
+        
+        // Atualizar filtros
+        if (window.populateBairroSelect) {
+            window.populateBairroSelect();
+        }
+        
+        console.log('✅ === DASHBOARD LIMPO INICIALIZADO COM CORREÇÃO! ===');
+        showMessage('✅ SolarMap carregado com dados corrigidos e normalização numérica!');
+        
+        // Estatísticas finais
+        console.log('📊 === ESTATÍSTICAS FINAIS ===');
+        console.log(`📍 Dados: ${dadosCompletos.length} itens`);
+        console.log(`🗺️ Polígonos: ${window.layerGroup?.getLayers().length || 0}`);
+        console.log(`🏘️ Bairros: ${Object.keys(estatisticasPorBairro).length}`);
+        
+        const dadosVinculados = dadosCompletos.filter(item => item.isLinked);
+        console.log(`📋 Taxa vinculação: ${dadosVinculados.length}/${dadosCompletos.length} (${((dadosVinculados.length/dadosCompletos.length)*100).toFixed(1)}%)`);
+        
+        const dadosComValores = dadosCompletos.filter(item => 
+            item.properties.area_edificacao > 0 || 
+            item.properties.producao_telhado > 0 || 
+            item.properties.capacidade_por_m2 > 0
+        );
+        console.log(`📈 Dados válidos: ${dadosComValores.length} (${((dadosComValores.length/dadosCompletos.length)*100).toFixed(1)}%)`);
+        
+        return true;
+        
     } catch (error) {
         console.error('❌ Erro na inicialização:', error);
         showMessage(`❌ Erro: ${error.message}`);
+        throw error;
     }
 }
 
+// ================================
+// FUNÇÕES AUXILIARES
+// ================================
 async function initMapAndWait() {
     return new Promise((resolve, reject) => {
         try {
@@ -922,7 +1022,7 @@ async function initMapAndWait() {
                     }
                 }, 5000);
             } else {
-                reject(new Error('Função initMap não encontrada'));
+                reject(new Error('initMap não encontrada'));
             }
         } catch (error) {
             reject(error);
@@ -939,28 +1039,27 @@ async function addPolygonsAndWait() {
                 const maxAttempts = 60;
                 const checkProgress = setInterval(() => {
                     attempts++;
-                    if (window.layerGroup && window.layerGroup.getLayers().length > 0) {
-                        console.log(`✅ Polígonos adicionados: ${window.layerGroup.getLayers().length}`);
+                    const polygonCount = window.layerGroup?.getLayers().length || 0;
+                    if (polygonCount > 0) {
+                        console.log(`✅ Polígonos adicionados: ${polygonCount}`);
                         clearInterval(checkProgress);
                         resolve();
                     } else if (attempts >= maxAttempts) {
-                        console.warn('⚠️ Timeout ao aguardar polígonos');
+                        console.warn('⚠️ Timeout polígonos, continuando...');
                         clearInterval(checkProgress);
                         resolve();
                     }
                 }, 500);
             } else {
-                reject(new Error('Função addPolygonsToMap não encontrada'));
+                reject(new Error('addPolygonsToMap não encontrada'));
             }
         } catch (error) {
-            reject(error);
+            console.warn('⚠️ Erro polígonos, continuando:', error);
+            resolve();
         }
     });
 }
 
-// ================================
-// FUNÇÕES AUXILIARES PARA GRÁFICOS
-// ================================
 function getMediaDoBairro(bairro) {
     return estatisticasPorBairro[bairro] || {
         media_producao_mensal: new Array(12).fill(0),
@@ -982,18 +1081,25 @@ window.filtrosAtivos = filtrosAtivos;
 window.estatisticas = estatisticas;
 window.estatisticasPorBairro = estatisticasPorBairro;
 window.imovelSelecionado = imovelSelecionado;
-window.CORES = CORES;
-window.COLOR_SCALE = COLOR_SCALE;
 window.formatNumber = formatNumber;
-window.getColorByValue = getColorByValue;
 window.diagnosticDataDetailed = diagnosticDataDetailed;
-window.convertSIRGAS2000UTMToWGS84 = convertSIRGAS2000UTMToWGS84;
-window.SIRGAS_2000_UTM_23S = SIRGAS_2000_UTM_23S;
-window.isValidSaoLuisCoordinate = isValidSaoLuisCoordinate;
-window.normalizeCSVData = normalizeCSVData;
-window.debugFieldMapping = debugFieldMapping;
-window.calcularEstatisticasPorBairro = calcularEstatisticasPorBairro;
 window.getMediaDoBairro = getMediaDoBairro;
-window.generateMonthlyAverages = generateMonthlyAverages;
+window.updateInfoCards = updateInfoCards;
+window.updateRelatorio = updateRelatorio;
+window.estatisticasMerge = estatisticasMerge;
+window.executarMergeCompleto = executarMergeCompleto;
+window.converterSIRGAS2000ParaWGS84 = converterSIRGAS2000ParaWGS84;
 
-console.log('✅ DASHBOARD FINAL COMPLETO CARREGADO!');
+// ================================
+// EXPORTAÇÕES ADICIONAIS (CORREÇÃO NUMÉRICA)
+// ================================
+window.converterNumeroCorreto = converterNumeroCorreto;
+window.testarConversaoNumeros = testarConversaoNumeros;
+window.reprocessarDados = reprocessarDados;
+window.processarDadosMensais = processarDadosMensais;
+
+console.log('✅ DASHBOARD LIMPO E COMPLETO CARREGADO COM CORREÇÃO NUMÉRICA!');
+console.log('🔍 Execute diagnosticDataDetailed() para diagnóstico');
+console.log('🧪 Execute testarConversaoNumeros() para testar conversão');
+console.log('🔄 Execute reprocessarDados() para reaplicar correção');
+console.log('🧪 Execute window.dadosExcelRaw?.[0] para ver dados Excel');
