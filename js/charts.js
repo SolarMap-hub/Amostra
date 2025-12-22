@@ -1,17 +1,17 @@
 // ================================
 // GRÁFICOS INTERATIVOS - SOLARMAP
-// VERSÃO COM MÉDIA POR BAIRRO
+// VERSÃO CORRIGIDA COMPLETA - Dados mensais reais conforme especificação
 // ================================
 let chartProducao;
 let chartRadiacao;
 const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
 // ================================
-// FUNÇÃO PARA GERAR CORES SUAVES (10% mais claras)
+// FUNÇÃO PARA GERAR CORES SUAVES (tons de laranja)
 // ================================
 function generateSoftColors(values) {
     if (!values || values.length === 0) {
-        return new Array(12).fill('#FFF5E6');  // Laranja muito claro
+        return new Array(12).fill('#FFE4CC');  // Laranja muito claro
     }
     
     const minVal = Math.min(...values);
@@ -19,20 +19,20 @@ function generateSoftColors(values) {
     const range = maxVal - minVal;
     
     return values.map(value => {
-        if (range === 0) return '#FFF5E6';
+        if (range === 0) return '#FFE4CC';
         
         // Normalizar valor entre 0 e 1
         const normalized = (value - minVal) / range;
         
-        // Cores suaves e 10% mais claras
+        // Cores em tons de laranja suaves
         if (normalized <= 0.25) {
             return '#FFF8F0';  // Laranja ultra claro
         } else if (normalized <= 0.5) {
-            return '#FFF0E6';  // Laranja muito claro
+            return '#FFE4CC';  // Laranja muito claro
         } else if (normalized <= 0.75) {
-            return '#FFE4CC';  // Laranja claro
+            return '#FFD4A3';  // Laranja claro
         } else {
-            return '#FFD4A3';  // Laranja médio claro
+            return '#FFC080';  // Laranja médio
         }
     });
 }
@@ -41,12 +41,12 @@ function generateSoftColors(values) {
 // INICIALIZAÇÃO DOS GRÁFICOS
 // ================================
 function initializeCharts() {
-    console.log('📊 Inicializando gráficos com média por bairro...');
+    console.log('📊 Inicializando gráficos com dados mensais reais...');
     try {
         destroyCharts();
         initProducaoChart();
         initRadiacaoChart();
-        console.log('✅ Gráficos com média por bairro inicializados');
+        console.log('✅ Gráficos com dados mensais reais inicializados');
     } catch (error) {
         console.error('❌ Erro ao inicializar gráficos:', error);
         throw error;
@@ -54,7 +54,7 @@ function initializeCharts() {
 }
 
 // ================================
-// INICIALIZAR GRÁFICO DE PRODUÇÃO
+// INICIALIZAR GRÁFICO DE PRODUÇÃO - CONFORME ESPECIFICAÇÃO
 // ================================
 function initProducaoChart() {
     const canvas = document.getElementById('grafico-producao');
@@ -91,7 +91,7 @@ function initProducaoChart() {
                     order: 2  // Barras atrás
                 },
                 {
-                    label: 'Média do Bairro (kW)',
+                    label: 'Média Geral (kW)',
                     data: new Array(12).fill(0),
                     type: 'line',
                     borderColor: '#E74C3C',
@@ -119,7 +119,7 @@ function initProducaoChart() {
             plugins: {
                 title: {
                     display: true,
-                    text: '🔋 Produção Mensal de Energia',
+                    text: '🔋 Produção Mensal de Energia',  // CONFORME ESPECIFICAÇÃO
                     font: {
                         size: 18,
                         weight: 'bold',
@@ -147,6 +147,14 @@ function initProducaoChart() {
                     borderColor: '#E74C3C',
                     borderWidth: 1,
                     callbacks: {
+                        label: function(context) {
+                            const valor = context.raw;
+                            const label = context.dataset.label || '';
+                            const valorFormatado = window.formatNumber ? 
+                                window.formatNumber(valor, 2) : 
+                                valor.toFixed(2);
+                            return `${label}: ${valorFormatado} kW`;
+                        },
                         afterBody: function(context) {
                             if (window.imovelSelecionado) {
                                 return `Bairro: ${window.imovelSelecionado.properties.bairro}`;
@@ -195,7 +203,7 @@ function initProducaoChart() {
 }
 
 // ================================
-// INICIALIZAR GRÁFICO DE RADIAÇÃO
+// INICIALIZAR GRÁFICO DE RADIAÇÃO - CONFORME ESPECIFICAÇÃO
 // ================================
 function initRadiacaoChart() {
     const canvas = document.getElementById('grafico-radiacao');
@@ -232,7 +240,7 @@ function initRadiacaoChart() {
                     order: 2  // Barras atrás
                 },
                 {
-                    label: 'Média do Bairro (kW/m²)',
+                    label: 'Média Geral (kW/m²)',
                     data: new Array(12).fill(0),
                     type: 'line',
                     borderColor: '#F39C12',
@@ -261,7 +269,7 @@ function initRadiacaoChart() {
             plugins: {
                 title: {
                     display: true,
-                    text: '☀️ Radiação Solar Mensal',
+                    text: '☀️ Radiação Solar Mensal',  // CONFORME ESPECIFICAÇÃO
                     font: {
                         size: 18,
                         weight: 'bold',
@@ -289,6 +297,14 @@ function initRadiacaoChart() {
                     borderColor: '#F39C12',
                     borderWidth: 1,
                     callbacks: {
+                        label: function(context) {
+                            const valor = context.raw;
+                            const label = context.dataset.label || '';
+                            const valorFormatado = window.formatNumber ? 
+                                window.formatNumber(valor, 2) : 
+                                valor.toFixed(2);
+                            return `${label}: ${valorFormatado} kW/m²`;
+                        },
                         afterBody: function(context) {
                             if (window.imovelSelecionado) {
                                 return `Bairro: ${window.imovelSelecionado.properties.bairro}`;
@@ -337,7 +353,7 @@ function initRadiacaoChart() {
 }
 
 // ================================
-// ATUALIZAR GRÁFICOS COM MÉDIA DO BAIRRO
+// ATUALIZAR GRÁFICOS COM DADOS MENSAIS REAIS - CONFORME ESPECIFICAÇÃO
 // ================================
 function updateCharts(imovel = null) {
     if (!imovel) {
@@ -348,17 +364,54 @@ function updateCharts(imovel = null) {
     const props = imovel.properties;
     const bairro = props.bairro || 'Não informado';
     
-    // Gerar dados mensais simulados para o imóvel
-    const producaoMensal = generateMockMonthlyData(props.producao_telhado || 0);
-    const radiacaoMensal = generateMockMonthlyData(props.radiacao_max || 0);
+    console.log('📊 === DEBUG ATUALIZAÇÃO GRÁFICOS CORRIGIDA ===');
+    console.log(`Imóvel: ${imovel.id}, Bairro: ${bairro}`);
+    console.log('Dados mensais produção:', props.dados_mensais_producao);
+    console.log('Dados mensais radiação:', props.dados_mensais_radiacao);
     
-    // Obter médias do bairro
-    const mediaDoBairro = window.getMediaDoBairro ? window.getMediaDoBairro(bairro) : {
-        media_producao_mensal: new Array(12).fill(0),
-        media_radiacao_mensal: new Array(12).fill(0)
-    };
+    // USAR DADOS MENSAIS REAIS CONFORME ESPECIFICAÇÃO
+    let producaoMensal = new Array(12).fill(0);
+    let radiacaoMensal = new Array(12).fill(0);
+    
+    // Para PRODUÇÃO: usar dados mensais das colunas especificadas
+    if (props.dados_mensais_producao && props.dados_mensais_producao.length === 12) {
+        const temDadosReais = props.dados_mensais_producao.some(valor => valor > 0);
+        if (temDadosReais) {
+            producaoMensal = props.dados_mensais_producao;
+            console.log('✅ Usando dados mensais REAIS de produção:', producaoMensal);
+        } else {
+            // Fallback: distribuir producao_telhado pelos meses
+            producaoMensal = distribuirProducaoAnual(props.producao_telhado || 0);
+            console.log('⚠️ Dados mensais zerados, distribuindo produção anual:', props.producao_telhado);
+        }
+    } else {
+        // Fallback: distribuir producao_telhado pelos meses
+        producaoMensal = distribuirProducaoAnual(props.producao_telhado || 0);
+        console.log('⚠️ Dados mensais não encontrados, distribuindo produção anual:', props.producao_telhado);
+    }
+    
+    // Para RADIAÇÃO: usar dados mensais das colunas especificadas
+    if (props.dados_mensais_radiacao && props.dados_mensais_radiacao.length === 12) {
+        const temDadosReaisRadiacao = props.dados_mensais_radiacao.some(valor => valor > 0);
+        if (temDadosReaisRadiacao) {
+            radiacaoMensal = props.dados_mensais_radiacao;
+            console.log('✅ Usando dados mensais REAIS de radiação:', radiacaoMensal);
+        } else {
+            // Fallback: distribuir radiacao_max pelos meses
+            radiacaoMensal = distribuirRadiacaoAnual(props.radiacao_max || 0);
+            console.log('⚠️ Dados mensais de radiação zerados, distribuindo radiação anual:', props.radiacao_max);
+        }
+    } else {
+        // Fallback: distribuir radiacao_max pelos meses
+        radiacaoMensal = distribuirRadiacaoAnual(props.radiacao_max || 0);
+        console.log('⚠️ Dados mensais de radiação não encontrados, distribuindo radiação anual:', props.radiacao_max);
+    }
+    
+    // Calcular médias gerais para linha de referência
+    const mediaGeralProducao = calcularMediaGeral('producao');
+    const mediaGeralRadiacao = calcularMediaGeral('radiacao');
 
-    // Gerar cores suaves baseadas nos valores
+    // Gerar cores suaves baseadas nos valores REAIS
     const coresProducao = generateSoftColors(producaoMensal);
     const coresRadiacao = generateSoftColors(radiacaoMensal);
 
@@ -369,10 +422,13 @@ function updateCharts(imovel = null) {
         chartProducao.data.datasets[0].borderColor = coresProducao.map(color => 
             color.replace('#', '#').concat('CC')
         );
-        // CORRIGIDO: Usar média do bairro
-        chartProducao.data.datasets[1].data = mediaDoBairro.media_producao_mensal;
-        chartProducao.data.datasets[1].label = `Média do Bairro: ${bairro}`;
+        // Usar média geral
+        chartProducao.data.datasets[1].data = mediaGeralProducao;
+        chartProducao.data.datasets[1].label = 'Média Geral (kW)';
         chartProducao.update('active');
+        
+        console.log('📊 Produção - Dados aplicados:', chartProducao.data.datasets[0].data);
+        console.log('📊 Produção - Média geral:', chartProducao.data.datasets[1].data);
     }
 
     // Atualizar gráfico de radiação
@@ -382,32 +438,117 @@ function updateCharts(imovel = null) {
         chartRadiacao.data.datasets[0].borderColor = coresRadiacao.map(color => 
             color.replace('#', '#').concat('CC')
         );
-        // CORRIGIDO: Usar média do bairro
-        chartRadiacao.data.datasets[1].data = mediaDoBairro.media_radiacao_mensal;
-        chartRadiacao.data.datasets[1].label = `Média do Bairro: ${bairro}`;
+        // Usar média geral
+        chartRadiacao.data.datasets[1].data = mediaGeralRadiacao;
+        chartRadiacao.data.datasets[1].label = 'Média Geral (kW/m²)';
         chartRadiacao.update('active');
+        
+        console.log('📊 Radiação - Dados aplicados:', chartRadiacao.data.datasets[0].data);
+        console.log('📊 Radiação - Média geral:', chartRadiacao.data.datasets[1].data);
     }
     
     console.log(`📊 Gráficos atualizados para imóvel ${imovel.id} no bairro ${bairro}`);
-    console.log(`📈 Média do bairro:`, mediaDoBairro);
+    console.log(`📈 Máximo produção mensal: ${Math.max(...producaoMensal).toFixed(2)} kW`);
+    console.log(`📈 Máximo radiação mensal: ${Math.max(...radiacaoMensal).toFixed(2)} kW/m²`);
 }
 
 // ================================
-// GERAR DADOS MENSAIS SIMULADOS REALISTAS
+// DISTRIBUIR PRODUÇÃO ANUAL PELOS MESES (PADRÃO SAZONAL)
 // ================================
-function generateMockMonthlyData(baseValue) {
-    if (!baseValue || baseValue === 0) {
+function distribuirProducaoAnual(producaoAnual) {
+    if (!producaoAnual || producaoAnual === 0) {
         return new Array(12).fill(0);
     }
     
-    // Simular variação sazonal realística para São Luís
-    // (maior radiação/produção no final do ano, menor no meio do ano)
-    const seasonalFactors = [1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2];
+    // Fatores sazonais para São Luís (maior produção no final do ano)
+    const fatoresSazonais = [1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2];
+    const somaFatores = fatoresSazonais.reduce((sum, fator) => sum + fator, 0);
     
-    return seasonalFactors.map(factor => {
-        const variation = 0.8 + (Math.random() * 0.4); // Variação de ±20%
-        return (baseValue / 12) * factor * variation;
+    return fatoresSazonais.map(fator => {
+        return (producaoAnual * fator) / somaFatores;
     });
+}
+
+// ================================
+// DISTRIBUIR RADIAÇÃO ANUAL PELOS MESES (PADRÃO SAZONAL)
+// ================================
+function distribuirRadiacaoAnual(radiacaoAnual) {
+    if (!radiacaoAnual || radiacaoAnual === 0) {
+        return new Array(12).fill(0);
+    }
+    
+    // Fatores sazonais para radiação em São Luís
+    const fatoresSazonais = [1.2, 1.1, 1.0, 0.9, 0.8, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3];
+    const somaFatores = fatoresSazonais.reduce((sum, fator) => sum + fator, 0);
+    
+    return fatoresSazonais.map(fator => {
+        return (radiacaoAnual * fator) / somaFatores;
+    });
+}
+
+// ================================
+// CALCULAR MÉDIA GERAL PARA LINHA DE REFERÊNCIA
+// ================================
+function calcularMediaGeral(tipo) {
+    if (!window.dadosCompletos || window.dadosCompletos.length === 0) {
+        return new Array(12).fill(0);
+    }
+    
+    const dadosComValores = window.dadosCompletos.filter(item => {
+        if (tipo === 'producao') {
+            return item.properties?.producao_telhado > 0 ||
+                   (item.properties?.dados_mensais_producao && 
+                    item.properties.dados_mensais_producao.some(v => v > 0));
+        } else {
+            return item.properties?.radiacao_max > 0 ||
+                   (item.properties?.dados_mensais_radiacao && 
+                    item.properties.dados_mensais_radiacao.some(v => v > 0));
+        }
+    });
+    
+    if (dadosComValores.length === 0) {
+        return new Array(12).fill(0);
+    }
+    
+    const mediaMensal = new Array(12).fill(0);
+    
+    for (let mes = 0; mes < 12; mes++) {
+        let somaMes = 0;
+        let contadorMes = 0;
+        
+        dadosComValores.forEach(item => {
+            let valorMes = 0;
+            
+            if (tipo === 'producao') {
+                if (item.properties.dados_mensais_producao && 
+                    item.properties.dados_mensais_producao[mes] > 0) {
+                    valorMes = item.properties.dados_mensais_producao[mes];
+                } else if (item.properties.producao_telhado > 0) {
+                    // Distribuir produção anual
+                    const distribuicao = distribuirProducaoAnual(item.properties.producao_telhado);
+                    valorMes = distribuicao[mes];
+                }
+            } else {
+                if (item.properties.dados_mensais_radiacao && 
+                    item.properties.dados_mensais_radiacao[mes] > 0) {
+                    valorMes = item.properties.dados_mensais_radiacao[mes];
+                } else if (item.properties.radiacao_max > 0) {
+                    // Distribuir radiação anual
+                    const distribuicao = distribuirRadiacaoAnual(item.properties.radiacao_max);
+                    valorMes = distribuicao[mes];
+                }
+            }
+            
+            if (valorMes > 0) {
+                somaMes += valorMes;
+                contadorMes++;
+            }
+        });
+        
+        mediaMensal[mes] = contadorMes > 0 ? somaMes / contadorMes : 0;
+    }
+    
+    return mediaMensal;
 }
 
 // ================================
@@ -423,7 +564,7 @@ function resetCharts() {
             color.replace('#', '#').concat('CC')
         );
         chartProducao.data.datasets[1].data = new Array(12).fill(0);
-        chartProducao.data.datasets[1].label = 'Média do Bairro (kW)';
+        chartProducao.data.datasets[1].label = 'Média Geral (kW)';
         chartProducao.update('none');
     }
     if (chartRadiacao) {
@@ -433,7 +574,7 @@ function resetCharts() {
             color.replace('#', '#').concat('CC')
         );
         chartRadiacao.data.datasets[1].data = new Array(12).fill(0);
-        chartRadiacao.data.datasets[1].label = 'Média do Bairro (kW/m²)';
+        chartRadiacao.data.datasets[1].label = 'Média Geral (kW/m²)';
         chartRadiacao.update('none');
     }
     console.log('🔄 Gráficos resetados');
@@ -469,25 +610,88 @@ function destroyCharts() {
 // DIAGNÓSTICO DOS GRÁFICOS
 // ================================
 function diagnosticCharts() {
-    console.log('🔍 === DIAGNÓSTICO DOS GRÁFICOS COM BAIRRO ===');
+    console.log('🔍 === DIAGNÓSTICO DOS GRÁFICOS CORRIGIDO ===');
+    
     if (chartProducao) {
-        console.log('📊 Gráfico de Produção - Imóvel:', chartProducao.data.datasets[0].data);
-        console.log('📊 Gráfico de Produção - Média Bairro:', chartProducao.data.datasets[1].data);
+        console.log('📊 Gráfico de Produção - Dados do Imóvel:', chartProducao.data.datasets[0].data);
+        console.log('📊 Gráfico de Produção - Média Geral:', chartProducao.data.datasets[1].data);
         console.log('📊 Gráfico de Produção - Label:', chartProducao.data.datasets[1].label);
     } else {
         console.log('❌ Gráfico de Produção não inicializado');
     }
+    
     if (chartRadiacao) {
-        console.log('📊 Gráfico de Radiação - Imóvel:', chartRadiacao.data.datasets[0].data);
-        console.log('📊 Gráfico de Radiação - Média Bairro:', chartRadiacao.data.datasets[1].data);
+        console.log('📊 Gráfico de Radiação - Dados do Imóvel:', chartRadiacao.data.datasets[0].data);
+        console.log('📊 Gráfico de Radiação - Média Geral:', chartRadiacao.data.datasets[1].data);
         console.log('📊 Gráfico de Radiação - Label:', chartRadiacao.data.datasets[1].label);
     } else {
         console.log('❌ Gráfico de Radiação não inicializado');
     }
-    if (window.estatisticasPorBairro) {
-        console.log('📊 Estatísticas por bairro disponíveis:', Object.keys(window.estatisticasPorBairro));
+    
+    // Verificar dados disponíveis
+    if (window.dadosCompletos && window.dadosCompletos.length > 0) {
+        const dadosComProducao = window.dadosCompletos.filter(item => 
+            item.properties?.producao_telhado > 0 ||
+            (item.properties?.dados_mensais_producao && 
+             item.properties.dados_mensais_producao.some(v => v > 0))
+        );
+        
+        const dadosComRadiacao = window.dadosCompletos.filter(item => 
+            item.properties?.radiacao_max > 0 ||
+            (item.properties?.dados_mensais_radiacao && 
+             item.properties.dados_mensais_radiacao.some(v => v > 0))
+        );
+        
+        console.log(`📊 Dados com produção válida: ${dadosComProducao.length}`);
+        console.log(`📊 Dados com radiação válida: ${dadosComRadiacao.length}`);
+        
+        if (dadosComProducao.length > 0) {
+            const exemplo = dadosComProducao[0];
+            console.log(`📊 Exemplo - Produção telhado: ${exemplo.properties.producao_telhado}`);
+            console.log(`📊 Exemplo - Dados mensais produção:`, exemplo.properties.dados_mensais_producao);
+        }
+        
+        if (dadosComRadiacao.length > 0) {
+            const exemplo = dadosComRadiacao[0];
+            console.log(`📊 Exemplo - Radiação max: ${exemplo.properties.radiacao_max}`);
+            console.log(`📊 Exemplo - Dados mensais radiação:`, exemplo.properties.dados_mensais_radiacao);
+        }
+    }
+}
+
+// ================================
+// TESTAR GRÁFICOS COM DADOS REAIS
+// ================================
+function testarGraficosComDados() {
+    console.log('🧪 === TESTE DOS GRÁFICOS COM DADOS REAIS ===');
+    
+    if (!window.dadosCompletos || window.dadosCompletos.length === 0) {
+        console.error('❌ Nenhum dado disponível para teste');
+        return;
+    }
+    
+    // Procurar um imóvel com dados válidos
+    const imovelComDados = window.dadosCompletos.find(item => 
+        item.properties?.producao_telhado > 0 || 
+        item.properties?.radiacao_max > 0 ||
+        (item.properties?.dados_mensais_producao && 
+         item.properties.dados_mensais_producao.some(v => v > 0)) ||
+        (item.properties?.dados_mensais_radiacao && 
+         item.properties.dados_mensais_radiacao.some(v => v > 0))
+    );
+    
+    if (imovelComDados) {
+        console.log(`🧪 Testando com imóvel ${imovelComDados.id}:`);
+        console.log('  - Bairro:', imovelComDados.properties.bairro);
+        console.log('  - Produção telhado:', imovelComDados.properties.producao_telhado);
+        console.log('  - Radiação max:', imovelComDados.properties.radiacao_max);
+        console.log('  - Dados mensais produção:', imovelComDados.properties.dados_mensais_producao);
+        console.log('  - Dados mensais radiação:', imovelComDados.properties.dados_mensais_radiacao);
+        
+        updateCharts(imovelComDados);
+        console.log('✅ Teste dos gráficos concluído');
     } else {
-        console.log('❌ Estatísticas por bairro não disponíveis');
+        console.error('❌ Nenhum imóvel com dados válidos encontrado');
     }
 }
 
@@ -507,6 +711,11 @@ window.resizeCharts = resizeCharts;
 window.destroyCharts = destroyCharts;
 window.diagnosticCharts = diagnosticCharts;
 window.generateSoftColors = generateSoftColors;
-window.generateMockMonthlyData = generateMockMonthlyData;
+window.distribuirProducaoAnual = distribuirProducaoAnual;
+window.distribuirRadiacaoAnual = distribuirRadiacaoAnual;
+window.calcularMediaGeral = calcularMediaGeral;
+window.testarGraficosComDados = testarGraficosComDados;
 
-console.log('✅ GRÁFICOS COM MÉDIA POR BAIRRO - Implementado!');
+console.log('✅ GRÁFICOS CORRIGIDOS COMPLETOS - Dados mensais reais conforme especificação!');
+console.log('🧪 Execute testarGraficosComDados() para teste');
+console.log('🔍 Execute diagnosticCharts() para diagnóstico');
