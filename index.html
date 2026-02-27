@@ -452,17 +452,17 @@
         function mostrarGateSeNecessario() {
             const gate = document.getElementById('form-gate');
             if (!gate) return;
+             gate.style.display = "flex"; 
+        }// SEMPRE mostra o gate ao entrar/recarregar
 
             const liberado = localStorage.getItem("formAccessOk") === "true";
             gate.style.display = liberado ? "none" : "flex";
         }
 
         function limparAcesso() {
-            localStorage.removeItem("formAccessOk");
-            localStorage.removeItem("formAccessEmail");
             const gate = document.getElementById("form-gate");
             if (gate) gate.style.display = "flex";
-            setGateMsg("Acesso limpo. Informe o e-mail novamente.", true);
+            setGateMsg("Acesso limpo. Informe o e-mail novamente.", true);;
         }
 
         // JSONP helper (evita CORS em site estático)
@@ -506,9 +506,6 @@
                 const res = await jsonp(url);
 
                 if (res && res.ok) {
-                    localStorage.setItem("formAccessOk", "true");
-                    localStorage.setItem("formAccessEmail", email);
-
                     const gate = document.getElementById("form-gate");
                     if (gate) gate.style.display = "none";
 
