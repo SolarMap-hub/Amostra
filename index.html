@@ -227,206 +227,193 @@
 
     <!-- 2. Script de inicialização -->
     <script>
-        console.log('🔄 Iniciando carregamento do SolarMap...');
+console.log('🔄 Iniciando SolarMap...');
 
-        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxHOZD-5z8NKNnJLHEOBKWEB8hxWA1vxTNnsLHhyJYUNnzBS2fyDg1etG-O3NITcQA2Vg/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxHOZD-5z8NKNnJLHEOBKWEB8hxWA1vxTNnsLHhyJYUNnzBS2fyDg1etG-O3NITcQA2Vg/exec";
 
-        // ===== Gate =====
-        function setGateMsg(msg, ok = false) {
-            const el = document.getElementById("gate-msg");
-            if (!el) return;
-            el.style.color = ok ? "#16a34a" : "#dc2626";
-            el.textContent = msg;
+let currentSessionId = null;
+
+// =============================
+// GATE
+// =============================
+function setGateMsg(msg, ok = false) {
+    const el = document.getElementById("gate-msg");
+    if (!el) return;
+    el.style.color = ok ? "#16a34a" : "#dc2626";
+    el.textContent = msg;
+}
+
+function mostrarGate() {
+    const gate = document.getElementById('form-gate');
+    if (gate) gate.style.display = "flex";
+}
+
+function esconderGate() {
+    const gate = document.getElementById('form-gate');
+    if (gate) gate.style.display = "none";
+}
+
+function limparAcesso() {
+    const input = document.getElementById("gate-email");
+    if (input) input.value = "";
+    setGateMsg("Informe o e-mail novamente.", true);
+    mostrarGate();
+}
+
+// Sempre mostrar gate ao carregar
+mostrarGate();
+
+// =============================
+// JSONP helper
+// =============================
+function jsonp(url) {
+    return new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        const cb = "cb_" + Date.now() + "_" + Math.floor(Math.random() * 10000);
+
+        window[cb] = (data) => {
+            resolve(data);
+            try { delete window[cb]; } catch(e) {}
+            script.remove();
+        };
+
+        script.onerror = () => {
+            reject(new Error("Falha JSONP"));
+            try { delete window[cb]; } catch(e) {}
+            script.remove();
+        };
+
+        script.src = url + (url.includes("?") ? "&" : "?") + "callback=" + cb;
+        document.body.appendChild(script);
+    });
+}
+
+// =============================
+// VALIDAR EMAIL + LOG START
+// =============================
+async function validarEmail() {
+
+    const input = document.getElementById("gate-email");
+    const email = (input?.value || "").trim().toLowerCase();
+
+    if (!email || !email.includes("@")) {
+        setGateMsg("Digite um e-mail válido.");
+        return;
+    }
+
+    setGateMsg("Verificando envio no formulário...", true);
+
+    try {
+        // 1️⃣ VERIFY
+        const verifyUrl = `${SCRIPT_URL}?email=${encodeURIComponent(email)}`;
+        const verifyRes = await jsonp(verifyUrl);
+
+        if (!verifyRes || !verifyRes.ok) {
+            setGateMsg("Acesso negado: e-mail não encontrado.");
+            return;
         }
 
-        // Sempre mostra o gate ao entrar/recarregar (seu cenário 1)
-        function mostrarGateSeNecessario() {
-            const gate = document.getElementById('form-gate');
-            if (!gate) return;
-            gate.style.display = "flex";
+        // 2️⃣ LOG START
+        const startUrl =
+            `${SCRIPT_URL}?action=log_start` +
+            `&email=${encodeURIComponent(email)}` +
+            `&ua=${encodeURIComponent(navigator.userAgent)}` +
+            `&page=${encodeURIComponent(location.href)}`;
+
+        const startRes = await jsonp(startUrl);
+
+        if (startRes && startRes.ok) {
+            currentSessionId = startRes.sessionId;
+            console.log("🟢 Sessão iniciada:", currentSessionId);
         }
 
-        function limparAcesso() {
-            const input = document.getElementById("gate-email");
-            if (input) input.value = "";
-            setGateMsg("Informe o e-mail novamente.", true);
-            const gate = document.getElementById("form-gate");
-            if (gate) gate.style.display = "flex";
+        esconderGate();
+        setGateMsg("Acesso liberado!", true);
+
+    } catch (err) {
+        console.error(err);
+        setGateMsg("Erro ao validar. Tente novamente.");
+    }
+}
+
+window.validarEmail = validarEmail;
+window.limparAcesso = limparAcesso;
+
+// =============================
+// LOG END (ao sair)
+// =============================
+window.addEventListener("beforeunload", function () {
+
+    if (!currentSessionId) return;
+
+    navigator.sendBeacon(
+        SCRIPT_URL,
+        JSON.stringify({
+            action: "log_end",
+            sessionId: currentSessionId
+        })
+    );
+
+    console.log("🔴 Sessão finalizada:", currentSessionId);
+});
+
+// =============================
+// ===== SEU LOADER ORIGINAL =====
+// =============================
+
+function updateLoadingStatus(text, details = '') {
+    const statusDiv = document.getElementById('loading-status');
+    const textDiv = document.getElementById('loading-text');
+    const detailsDiv = document.getElementById('loading-details');
+
+    if (statusDiv && textDiv) {
+        statusDiv.style.display = 'block';
+        textDiv.textContent = text;
+        if (detailsDiv) detailsDiv.textContent = details;
+    }
+}
+
+function hideLoadingStatus() {
+    const statusDiv = document.getElementById('loading-status');
+    if (statusDiv) statusDiv.style.display = 'none';
+}
+
+function loadScriptSync(src, description = '') {
+    return new Promise((resolve, reject) => {
+        updateLoadingStatus('🔄 Carregando...', description || src);
+
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error(`Falha ao carregar: ${src}`));
+        document.head.appendChild(script);
+    });
+}
+
+async function initializeSolarMap() {
+    try {
+        await loadScriptSync('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+        await loadScriptSync('js/dashboard.js');
+        await loadScriptSync('js/map.js');
+        await loadScriptSync('js/charts.js');
+        await loadScriptSync('js/filters.js');
+
+        if (typeof initializeDashboard === 'function') {
+            await initializeDashboard();
         }
 
-        // JSONP helper (evita CORS)
-        function jsonp(url) {
-            return new Promise((resolve, reject) => {
-                const script = document.createElement("script");
-                const cb = "cb_" + Date.now() + "_" + Math.floor(Math.random() * 10000);
+        hideLoadingStatus();
 
-                window[cb] = (data) => {
-                    resolve(data);
-                    try { delete window[cb]; } catch(e) {}
-                    script.remove();
-                };
+    } catch (error) {
+        console.error('Erro na inicialização:', error);
+    }
+}
 
-                script.onerror = () => {
-                    reject(new Error("Falha na requisição JSONP"));
-                    try { delete window[cb]; } catch(e) {}
-                    script.remove();
-                };
-
-                script.src = url + (url.includes("?") ? "&" : "?") + "callback=" + cb;
-                document.body.appendChild(script);
-            });
-        }
-
-        async function validarEmail() {
-            const input = document.getElementById("gate-email");
-            const email = (input?.value || "").trim().toLowerCase();
-
-            if (!email || !email.includes("@")) {
-                setGateMsg("Digite um e-mail válido (o mesmo usado no formulário).");
-                return;
-            }
-
-            setGateMsg("Verificando seu envio no formulário...", true);
-
-            const url = `${SCRIPT_URL}?email=${encodeURIComponent(email)}`;
-
-            try {
-                const res = await jsonp(url);
-
-                if (res && res.ok) {
-                    const gate = document.getElementById("form-gate");
-                    if (gate) gate.style.display = "none";
-                    setGateMsg("Acesso liberado!", true);
-                } else {
-                    const detalhe = res?.error ? ` (${res.error})` : "";
-                    setGateMsg("Acesso negado: não encontramos esse e-mail nas respostas do formulário." + detalhe);
-                }
-            } catch (err) {
-                console.error(err);
-                setGateMsg("Erro ao verificar. Tente novamente em alguns segundos.");
-            }
-        }
-
-        window.validarEmail = validarEmail;
-        window.limparAcesso = limparAcesso;
-
-        // Mostra gate cedo (antes do carregamento do dashboard)
-        mostrarGateSeNecessario();
-
-        // ====== Seu loader original ======
-        function updateLoadingStatus(text, details = '') {
-            const statusDiv = document.getElementById('loading-status');
-            const textDiv = document.getElementById('loading-text');
-            const detailsDiv = document.getElementById('loading-details');
-
-            if (statusDiv && textDiv) {
-                statusDiv.style.display = 'block';
-                textDiv.textContent = text;
-                if (detailsDiv) detailsDiv.textContent = details;
-            }
-            console.log(`📋 ${text} ${details}`);
-        }
-
-        function hideLoadingStatus() {
-            const statusDiv = document.getElementById('loading-status');
-            if (statusDiv) statusDiv.style.display = 'none';
-        }
-
-        function loadScriptSync(src, description = '') {
-            return new Promise((resolve, reject) => {
-                updateLoadingStatus('🔄 Carregando...', description || src);
-
-                const script = document.createElement('script');
-                script.src = src;
-                script.onload = () => { console.log('✅ Script carregado:', description || src); resolve(); };
-                script.onerror = () => { console.error('❌ Erro ao carregar:', description || src); reject(new Error(`Falha ao carregar: ${src}`)); };
-                document.head.appendChild(script);
-            });
-        }
-
-        function updateDebugPanel() {
-            if (document.getElementById('debug-panel')?.style.display !== 'none') {
-                const dataCount = window.dadosCompletos?.length || 0;
-                const mapStatus = window.mapInstance ? '✅' : '❌';
-                const polygonsCount = window.layerGroup?.getLayers().length || 0;
-                const bairrosCount = Object.keys(window.estatisticasPorBairro || {}).length;
-
-                document.getElementById('debug-data-count').textContent = dataCount;
-                document.getElementById('debug-map-status').textContent = mapStatus;
-                document.getElementById('debug-polygons-count').textContent = polygonsCount;
-                document.getElementById('debug-bairros-count').textContent = bairrosCount;
-            }
-        }
-
-        function toggleDebugPanel() {
-            const panel = document.getElementById('debug-panel');
-            if (!panel) return;
-            if (panel.style.display === 'none' || !panel.style.display) {
-                panel.style.display = 'block';
-                updateDebugPanel();
-                setInterval(updateDebugPanel, 2000);
-            } else {
-                panel.style.display = 'none';
-            }
-        }
-
-        document.addEventListener('keydown', function(e) {
-            if (e.ctrlKey && e.shiftKey && e.key === 'D') {
-                e.preventDefault();
-                toggleDebugPanel();
-            }
-        });
-
-        async function initializeSolarMap() {
-            try {
-                updateLoadingStatus('📚 Carregando bibliotecas...', 'XLSX');
-                await loadScriptSync('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js', 'XLSX Library');
-
-                if (typeof XLSX === 'undefined') throw new Error('XLSX não foi carregado corretamente');
-
-                updateLoadingStatus('📊 Carregando dashboard...', 'Dashboard com Merge Integrado');
-                await loadScriptSync('js/dashboard.js', 'Dashboard com Merge Integrado');
-
-                updateLoadingStatus('🗺️ Carregando módulos...', 'Mapa');
-                await loadScriptSync('js/map.js', 'Sistema de Mapas');
-
-                updateLoadingStatus('📈 Carregando módulos...', 'Gráficos');
-                await loadScriptSync('js/charts.js', 'Sistema de Gráficos');
-
-                updateLoadingStatus('🔍 Carregando módulos...', 'Filtros');
-                await loadScriptSync('js/filters.js', 'Sistema de Filtros');
-
-                updateLoadingStatus('🚀 Inicializando...', 'SolarMap Dashboard');
-
-                if (typeof initializeDashboard !== 'function') throw new Error('initializeDashboard não encontrada');
-
-                window.dashboardInitialized = true;
-                await initializeDashboard();
-
-                updateLoadingStatus('✅ Concluído!', 'SolarMap carregado com sucesso');
-                setTimeout(hideLoadingStatus, 2000);
-
-            } catch (error) {
-                console.error('❌ Erro na inicialização:', error);
-                updateLoadingStatus('❌ Erro!', error.message);
-                setTimeout(() => {
-                    const dbg = document.getElementById('debug-panel');
-                    if (dbg) dbg.style.display = 'block';
-                    updateDebugPanel();
-                }, 1000);
-            }
-        }
-
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initializeSolarMap);
-        } else {
-            initializeSolarMap();
-        }
-
-        window.updateLoadingStatus = updateLoadingStatus;
-        window.hideLoadingStatus = hideLoadingStatus;
-        window.toggleDebugPanel = toggleDebugPanel;
-        window.updateDebugPanel = updateDebugPanel;
-    </script>
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeSolarMap);
+} else {
+    initializeSolarMap();
+}
+</script>
 </body>
 </html>
